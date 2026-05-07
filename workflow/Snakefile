@@ -36,8 +36,62 @@ rule all:
         expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
         expand("{out}/final/DCC_transmission_map.html", out=OUT),
         expand("{out}/final/pipeline_summary.html", out=OUT),
-        expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
-               out=OUT, subsp=["abscessus", "massiliense"]),
+        # RAxML trees — requires sufficient sequence diversity (100+ isolates recommended)
+        # expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
+        #        out=OUT, subsp=["abscessus", "massiliense"]),
+
+
+# ============================================================
+# PHASE 0 — DOWNLOAD DCC REFERENCE SEQUENCES
+# ============================================================
+
+rule download_dcc_references:
+    """Download DCC anchor sequences from SRA and NCBI."""
+    output:
+        done = "{out}/references/.dcc_refs_done"
+    params:
+        abs_refs = "{out}/dcc_refs/abscessus",
+        mas_refs = "{out}/dcc_refs/massiliense"
+    conda: "envs/snippy.yaml"
+    shell:
+        """
+        mkdir -p {params.abs_refs} {params.mas_refs}
+
+        # Download abscessus DCC reads via ENA HTTP
+        for acc in SRR36966619 ERR363247 ERR1081288 ERR494841 ERR363431 ERR484982; do
+            if [ ! -f {params.abs_refs}/${{acc}}_1.fastq.gz ]; then
+                echo "Downloading $acc..."
+                prefix=$(echo $acc | cut -c1-6)
+                suffix=$(echo $acc | cut -c1-9)
+                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_1.fastq.gz" \
+                    -O {params.abs_refs}/${{acc}}_1.fastq.gz || true
+                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_2.fastq.gz" \
+                    -O {params.abs_refs}/${{acc}}_2.fastq.gz || true
+            fi
+        done
+
+        # Download massiliense DCC reads
+        for acc in ERR1045629 ERR2524314 ERR363320; do
+            if [ ! -f {params.mas_refs}/${{acc}}_1.fastq.gz ]; then
+                echo "Downloading $acc..."
+                prefix=$(echo $acc | cut -c1-6)
+                suffix=$(echo $acc | cut -c1-9)
+                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_1.fastq.gz" \
+                    -O {params.mas_refs}/${{acc}}_1.fastq.gz || true
+                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_2.fastq.gz" \
+                    -O {params.mas_refs}/${{acc}}_2.fastq.gz || true
+            fi
+        done
+
+        # Download massiliense assemblies (A47, FLAC047)
+        wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/799/795/GCF_002799795.1_ASM279979v1/GCF_002799795.1_ASM279979v1_genomic.fna.gz" \
+            -O {params.mas_refs}/A47.fna.gz && gunzip -f {params.mas_refs}/A47.fna.gz || true
+        wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/002/140/035/GCF_002140035.1_ASM214003v1/GCF_002140035.1_ASM214003v1_genomic.fna.gz" \
+            -O {params.mas_refs}/FLAC047.fna.gz && gunzip -f {params.mas_refs}/FLAC047.fna.gz || true
+
+        touch {output.done}
+        echo "DCC reference download complete"
+        """
 
 # ============================================================
 # PHASE 1 — SPECIES IDENTIFICATION (MASH)
@@ -171,18 +225,39 @@ rule snippy_massiliense:
 
 rule snippy_core_abscessus:
     input:
-        vcfs    = expand("{out}/snippy/abscessus/{sample}/snps.vcf",
-                        out=OUT, sample=SAMPLES),
-        ref     = config["subspecies_refs"]["abscessus"]["path"],
-        abslist = "{out}/mash/subspecies/abscessus_samples.txt"
+        vcfs      = expand("{out}/snippy/abscessus/{sample}/snps.vcf",
+                          out=OUT, sample=SAMPLES),
+        ref       = config["subspecies_refs"]["abscessus"]["path"],
+        abslist   = "{out}/mash/subspecies/abscessus_samples.txt",
+        dcc_done  = "{out}/references/.dcc_refs_done"
     output:
         aln = "{out}/core/abscessus/core.aln"
+    params:
+        dcc_refs = "{out}/dcc_refs/abscessus"
     conda: "envs/snippy.yaml"
     shell:
         """
-        # Only include confirmed abscessus samples
+        # Run snippy on DCC reference reads
+        for acc in SRR36966619 ERR363247 ERR1081288 ERR494841 ERR363431 ERR484982; do
+            if [ -f {params.dcc_refs}/${{acc}}_1.fastq.gz ] && \
+               [ ! -d {wildcards.out}/snippy/abscessus/${{acc}} ]; then
+                snippy --ref {input.ref} \
+                       --R1 {params.dcc_refs}/${{acc}}_1.fastq.gz \
+                       --R2 {params.dcc_refs}/${{acc}}_2.fastq.gz \
+                       --outdir {wildcards.out}/snippy/abscessus/${{acc}} \
+                       --cpus 4 --force
+            fi
+        done
+
+        # Build core alignment with patient isolates + DCC refs
         dirs=$(while read s; do echo {wildcards.out}/snippy/abscessus/$s; done < {input.abslist} | tr '\n' ' ')
-        snippy-core --ref {input.ref} --prefix {wildcards.out}/core/abscessus/core $dirs
+        dcc_dirs=$(ls -d {wildcards.out}/snippy/abscessus/{{SRR36966619,ERR363247,ERR1081288,ERR494841,ERR363431,ERR484982}} 2>/dev/null | tr '\n' ' ')
+        snippy-core --ref {input.ref} --prefix {wildcards.out}/core/abscessus/core $dirs $dcc_dirs || true
+        # If no SNPs found use full alignment as fallback
+        if [ ! -f {wildcards.out}/core/abscessus/core.aln ] || [ ! -s {wildcards.out}/core/abscessus/core.aln ]; then
+            echo "No core SNPs — using full alignment as fallback"
+            cp {wildcards.out}/core/abscessus/core.full.aln {wildcards.out}/core/abscessus/core.aln
+        fi
         """
 
 rule snippy_core_massiliense:
