@@ -159,3 +159,9 @@ Edit `config.yaml` to set:
 
 Casey Moyer — University of Pittsburgh, Phage Genomics and Bioinformatics
 GitHub: [cmoyer-x](https://github.com/cmoyer-x)
+
+## Notes on Test Datasets
+
+When running on small test datasets (<20 isolates) the RAxML tree building steps are automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees. The RAxML rules are commented out in the `all` target by default and can be re-enabled in the Snakefile for larger datasets.
+
+DCC reference sequences (~2-3GB) are downloaded automatically on first run from ENA and NCBI. This requires internet access from the server. If your server has no internet access download the references on a local machine and transfer them to `results/dcc_refs/`.
