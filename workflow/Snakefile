@@ -29,6 +29,94 @@ def get_species_refs():
 SAMPLES = get_samples()
 OUT = config["output_dir"]
 
+# ============================================================
+# PHASE 0a — INPUT VALIDATION
+# ============================================================
+
+def validate_inputs():
+    """Validate input FASTAs before pipeline starts."""
+    import os
+    import glob
+
+    fastas = (glob.glob(os.path.join(config["input_dir"], "*.fasta")) +
+              glob.glob(os.path.join(config["input_dir"], "*.fna")))
+
+    if not fastas:
+        raise ValueError(
+            f"No FASTA files found in {config['input_dir']}\n"
+            "Please place your assemblies in the input/assemblies/ directory."
+        )
+
+    n = len(fastas)
+    warnings = []
+    errors = []
+
+    # Minimum isolate warning
+    if n < 5:
+        errors.append(
+            f"Only {n} isolate(s) found. Minimum 5 required to run the pipeline."
+        )
+    if n < 20:
+        warnings.append(
+            f"WARNING: Only {n} isolates found. "
+            "FastBAPS clustering and RAxML trees require at least 20-50 isolates "
+            "for meaningful results. DCCs may not be detected in small datasets."
+        )
+    if n < 50:
+        warnings.append(
+            f"NOTE: {n} isolates is below the recommended minimum of 50 for "
+            "reliable DCC assignment. Consider adding more isolates or supplementing "
+            "with public genomes from Ruis et al. 2021 (see README)."
+        )
+
+    # Validate each FASTA file
+    for fasta in fastas:
+        size = os.path.getsize(fasta)
+        name = os.path.basename(fasta)
+
+        # Check file is not empty
+        if size == 0:
+            errors.append(f"Empty file: {name}")
+            continue
+
+        # Check minimum size (500KB — typical assembly is 5MB)
+        if size < 500000:
+            warnings.append(
+                f"Small file: {name} ({size/1000:.0f}KB) — "
+                "expected ~5MB for M. abscessus assembly. May be incomplete."
+            )
+
+        # Check valid FASTA format
+        try:
+            with open(fasta) as f:
+                first_line = f.readline().strip()
+                if not first_line.startswith(">"):
+                    errors.append(f"Invalid FASTA format: {name} — does not start with '>'")
+                second_line = f.readline().strip()
+                if not second_line:
+                    errors.append(f"Empty sequence: {name}")
+        except Exception as e:
+            errors.append(f"Could not read {name}: {e}")
+
+    # Print warnings
+    for w in warnings:
+        print(f"[mab-dcc-pipeline] {w}")
+
+    # Raise errors
+    if errors:
+        raise ValueError(
+            "Input validation failed:\n" +
+            "\n".join(f"  - {e}" for e in errors)
+        )
+
+    print(f"[mab-dcc-pipeline] Input validation passed: {n} isolates found")
+    return fastas
+
+# Run validation when pipeline starts
+validate_inputs()
+
+
+
 # ── Target rule ───────────────────────────────────────────────
 rule all:
     input:
@@ -93,6 +181,44 @@ rule download_dcc_references:
         echo "DCC reference download complete"
         """
 
+
+rule download_subspecies_refs:
+    """Download subspecies reference genomes from NCBI if not present."""
+    output:
+        abs_ref = config["subspecies_refs"]["abscessus"]["path"],
+        mas_ref = config["subspecies_refs"]["massiliense"]["path"],
+        bol_ref = config["subspecies_refs"]["bolletii"]["path"]
+    shell:
+        """
+        mkdir -p references/subspecies
+
+        # ATCC19977 — M. a. abscessus reference
+        if [ ! -f {output.abs_ref} ]; then
+            echo "Downloading ATCC19977 (M. a. abscessus reference)..."
+            wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/069/185/GCF_000069185.1_ASM6918v1/GCF_000069185.1_ASM6918v1_genomic.fna.gz" \
+                -O {output.abs_ref}.gz
+            gunzip {output.abs_ref}.gz
+        fi
+
+        # CIP_108297 — M. a. massiliense reference
+        if [ ! -f {output.mas_ref} ]; then
+            echo "Downloading CIP_108297 (M. a. massiliense reference)..."
+            wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/792/625/GCF_001792625.1_ASM179262v1/GCF_001792625.1_ASM179262v1_genomic.fna.gz" \
+                -O {output.mas_ref}.gz
+            gunzip {output.mas_ref}.gz
+        fi
+
+        # CCUG_50184 — M. a. bolletii reference
+        if [ ! -f {output.bol_ref} ]; then
+            echo "Downloading CCUG_50184 (M. a. bolletii reference)..."
+            wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/701/545/GCF_000701545.1_ASM70154v1/GCF_000701545.1_ASM70154v1_genomic.fna.gz" \
+                -O {output.bol_ref}.gz
+            gunzip {output.bol_ref}.gz
+        fi
+
+        echo "Subspecies references ready"
+        """
+
 # ============================================================
 # PHASE 1 — SPECIES IDENTIFICATION (MASH)
 # ============================================================
@@ -139,7 +265,10 @@ rule assign_species:
 rule mash_subspecies_distance:
     input:
         query          = config["input_dir"] + "/{sample}.fasta",
-        abscessus_list = "{out}/mash/abscessus_samples.txt"
+        abscessus_list = "{out}/mash/abscessus_samples.txt",
+        abs_ref        = config["subspecies_refs"]["abscessus"]["path"],
+        mas_ref        = config["subspecies_refs"]["massiliense"]["path"],
+        bol_ref        = config["subspecies_refs"]["bolletii"]["path"]
     output:
         dist = "{out}/mash/subspecies/{sample}.tsv"
     conda: "envs/mash.yaml"
