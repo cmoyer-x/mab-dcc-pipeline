@@ -1,6 +1,7 @@
 """
 assign_subspecies.py — Snakemake script
-Assign M. abscessus samples to abscessus/massiliense/bolletii.
+Assign M. abscessus samples to abscessus/massiliense/bolletii
+by closest MASH distance (not just first under threshold).
 """
 import os, pandas as pd
 
@@ -30,6 +31,7 @@ for dist_file in distance_files:
                          names=['ref','query','dist','p','hashes'])
         df['subspecies'] = df['ref'].apply(
             lambda x: next((v for k,v in SUBSPECIES_MAP.items() if k in x), 'unknown'))
+        # Pick closest match regardless of threshold
         best = df.loc[df['dist'].idxmin()]
         subsp, dist = best['subspecies'], best['dist']
         results.append({'Sample':sample,'Subspecies':subsp,

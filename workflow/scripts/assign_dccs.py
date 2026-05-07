@@ -5,6 +5,7 @@ Assign isolates to DCCs using FastBAPS clusters + SNP distances.
 import pandas as pd
 import csv
 import math
+import os
 from collections import Counter
 
 abs_dists    = snakemake.input.abs_dists
@@ -39,14 +40,29 @@ def get_dist(df, ref, iso):
         return None
 
 def assign(dist_file, cluster_file, subspecies, dcc_list):
-    df = pd.read_csv(dist_file, sep='\t', index_col=0)
+    # Handle empty files
+    if not os.path.exists(dist_file) or os.path.getsize(dist_file) == 0:
+        print(f"Empty distance file for {subspecies} — skipping")
+        return []
+
+    try:
+        df = pd.read_csv(dist_file, sep='\t', index_col=0)
+    except Exception as e:
+        print(f"Could not parse {dist_file}: {e}")
+        return []
+
+    # Check if file has actual sequence data
     gd = [c for c in df.columns if c not in ALL_REFS]
+    if not gd:
+        print(f"No GD isolates found in {dist_file} — skipping")
+        return []
 
     clusters = {}
-    with open(cluster_file) as f:
-        for row in csv.reader(f):
-            if len(row) >= 2:
-                clusters[row[0]] = row[1]
+    if os.path.exists(cluster_file) and os.path.getsize(cluster_file) > 0:
+        with open(cluster_file) as f:
+            for row in csv.reader(f):
+                if len(row) >= 2:
+                    clusters[row[0]] = row[1]
 
     ref_clusters = {}
     for ref, dcc in RUIS_REFS.items():
@@ -55,9 +71,8 @@ def assign(dist_file, cluster_file, subspecies, dcc_list):
 
     level1_dcc = {}
     for ref, (l1, dcc) in ref_clusters.items():
-        if dcc in dcc_list:
-            if l1 not in level1_dcc:
-                level1_dcc[l1] = dcc
+        if dcc in dcc_list and l1 not in level1_dcc:
+            level1_dcc[l1] = dcc
 
     results = []
     for iso in gd:
@@ -90,27 +105,35 @@ def assign(dist_file, cluster_file, subspecies, dcc_list):
         })
     return results
 
+os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+
 abs_results = assign(abs_dists, abs_clusters, 'M. a. abscessus',
                      ['DCC1','DCC2','DCC4','DCC5'])
 mas_results = assign(mas_dists, mas_clusters, 'M. a. massiliense',
                      ['DCC3','DCC6','DCC7'])
 
+# Write outputs even if empty
+fieldnames = ['Isolate','Subspecies','DCC','FastBAPS_Level1','Distance_to_DCC']
+
 with open(out_abs, 'w', newline='') as f:
-    w = csv.DictWriter(f, fieldnames=abs_results[0].keys())
-    w.writeheader(); w.writerows(abs_results)
+    w = csv.DictWriter(f, fieldnames=fieldnames)
+    w.writeheader()
+    w.writerows(abs_results)
 
 with open(out_mas, 'w', newline='') as f:
-    w = csv.DictWriter(f, fieldnames=mas_results[0].keys())
-    w.writeheader(); w.writerows(mas_results)
+    w = csv.DictWriter(f, fieldnames=fieldnames)
+    w.writeheader()
+    w.writerows(mas_results)
 
 all_results = abs_results + mas_results
 counts = Counter(r['DCC'] for r in all_results)
+
 with open(out_summary, 'w', newline='') as f:
     w = csv.writer(f, delimiter='\t')
     w.writerow(['DCC','Count'])
     for dcc, n in sorted(counts.items()):
         w.writerow([dcc, n])
 
-print(f"DCC assignments: {len(all_results)} isolates")
+print(f"DCC assignments complete: {len(all_results)} isolates")
 for dcc, n in sorted(counts.items()):
     print(f"  {dcc}: {n}")

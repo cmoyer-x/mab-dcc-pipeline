@@ -171,25 +171,39 @@ rule snippy_massiliense:
 
 rule snippy_core_abscessus:
     input:
-        vcfs = expand("{out}/snippy/abscessus/{sample}/snps.vcf",
-                     out=OUT, sample=SAMPLES),
-        ref  = config["subspecies_refs"]["abscessus"]["path"]
+        vcfs    = expand("{out}/snippy/abscessus/{sample}/snps.vcf",
+                        out=OUT, sample=SAMPLES),
+        ref     = config["subspecies_refs"]["abscessus"]["path"],
+        abslist = "{out}/mash/subspecies/abscessus_samples.txt"
     output:
         aln = "{out}/core/abscessus/core.aln"
     conda: "envs/snippy.yaml"
     shell:
-        "snippy-core --ref {input.ref} --prefix {wildcards.out}/core/abscessus/core {wildcards.out}/snippy/abscessus/*/"
+        """
+        # Only include confirmed abscessus samples
+        dirs=$(while read s; do echo {wildcards.out}/snippy/abscessus/$s; done < {input.abslist} | tr '\n' ' ')
+        snippy-core --ref {input.ref} --prefix {wildcards.out}/core/abscessus/core $dirs
+        """
 
 rule snippy_core_massiliense:
     input:
-        vcfs = expand("{out}/snippy/massiliense/{sample}/snps.vcf",
-                     out=OUT, sample=SAMPLES),
-        ref  = config["subspecies_refs"]["massiliense"]["path"]
+        vcfs    = expand("{out}/snippy/massiliense/{sample}/snps.vcf",
+                        out=OUT, sample=SAMPLES),
+        ref     = config["subspecies_refs"]["massiliense"]["path"],
+        maslist = "{out}/mash/subspecies/massiliense_samples.txt"
     output:
         aln = "{out}/core/massiliense/core.aln"
     conda: "envs/snippy.yaml"
     shell:
-        "snippy-core --ref {input.ref} --prefix {wildcards.out}/core/massiliense/core {wildcards.out}/snippy/massiliense/*/"
+        """
+        dirs=$(while read s; do echo {wildcards.out}/snippy/massiliense/$s; done < {input.maslist} | tr '\n' ' ')
+        if [ -z "$dirs" ]; then
+            echo "No massiliense samples found — creating empty alignment"
+            touch {output.aln}
+        else
+            snippy-core --ref {input.ref} --prefix {wildcards.out}/core/massiliense/core $dirs
+        fi
+        """
 
 # ============================================================
 # PHASE 3 — POPULATION STRUCTURE (FASTBAPS)
@@ -221,12 +235,17 @@ rule fastbaps_massiliense:
     threads: config["fastbaps"]["threads"]
     shell:
         """
-        run_fastbaps \
-            -i {input.aln} \
-            -o {output.clusters} \
-            -p {config[fastbaps][prior]} \
-            -l {config[fastbaps][levels]} \
-            -t {threads}
+        if [ -s {input.aln} ]; then
+            run_fastbaps \
+                -i {input.aln} \
+                -o {output.clusters} \
+                -p {config[fastbaps][prior]} \
+                -l {config[fastbaps][levels]} \
+                -t {threads}
+        else
+            echo "No massiliense sequences — skipping FastBAPS"
+            touch {output.clusters}
+        fi
         """
 
 # ============================================================
@@ -268,7 +287,13 @@ rule snp_dists_whole_cohort:
         tsv = "{out}/snp_distances/{subsp}/whole_cohort.tsv"
     conda: "envs/snippy.yaml"
     shell:
-        "snp-dists {input.aln} > {output.tsv}"
+        """
+        if [ -s {input.aln} ]; then
+            snp-dists {input.aln} > {output.tsv}
+        else
+            echo "No sequences — skipping snp-dists" > {output.tsv}
+        fi
+        """
 
 # ============================================================
 # PHASE 6 — DCC ASSIGNMENT
@@ -328,15 +353,20 @@ rule raxml_bootstrap:
     shell:
         """
         mkdir -p {params.workdir}
-        raxmlHPC-PTHREADS \
-            -s {input.aln} \
-            -n {wildcards.subsp}_raxml \
-            -m {params.model} \
-            -p {params.seed} \
-            -b {params.bseed} \
-            -N {params.n_boot} \
-            -T {threads} \
-            -w $(realpath {params.workdir})
+        if [ -s {input.aln} ]; then
+            raxmlHPC-PTHREADS \
+                -s {input.aln} \
+                -n {wildcards.subsp}_raxml \
+                -m {params.model} \
+                -p {params.seed} \
+                -b {params.bseed} \
+                -N {params.n_boot} \
+                -T {threads} \
+                -w $(realpath {params.workdir})
+        else
+            echo "No sequences — skipping RAxML"
+            touch {output.bootstrap}
+        fi
         """
 
 rule raxml_best_tree:
@@ -353,13 +383,19 @@ rule raxml_best_tree:
     conda: "envs/raxml.yaml"
     shell:
         """
-        raxmlHPC-PTHREADS \
-            -s {input.aln} \
-            -n {wildcards.subsp}_best \
-            -m {params.model} \
-            -p {params.seed} \
-            -T {threads} \
-            -w $(realpath {params.workdir})
+        mkdir -p {params.workdir}
+        if [ -s {input.aln} ]; then
+            raxmlHPC-PTHREADS \
+                -s {input.aln} \
+                -n {wildcards.subsp}_best \
+                -m {params.model} \
+                -p {params.seed} \
+                -T {threads} \
+                -w $(realpath {params.workdir})
+        else
+            echo "No sequences — skipping RAxML best tree"
+            touch {output.best}
+        fi
         """
 
 rule raxml_bipartitions:
@@ -374,13 +410,19 @@ rule raxml_bipartitions:
     conda: "envs/raxml.yaml"
     shell:
         """
-        raxmlHPC \
-            -f b \
-            -t {input.best} \
-            -z {input.bootstrap} \
-            -m {params.model} \
-            -n {wildcards.subsp}_final \
-            -w $(realpath {params.workdir})
+        mkdir -p {params.workdir}
+        if [ -s {input.best} ] && [ -s {input.bootstrap} ]; then
+            raxmlHPC \
+                -f b \
+                -t {input.best} \
+                -z {input.bootstrap} \
+                -m {params.model} \
+                -n {wildcards.subsp}_final \
+                -w $(realpath {params.workdir})
+        else
+            echo "No sequences — skipping RAxML bipartitions"
+            touch {output.bipartitions}
+        fi
         """
 
 # ============================================================
@@ -395,6 +437,7 @@ rule generate_excel_outputs:
     output:
         dcc_final   = "{out}/final/DCC_assignments_FINAL.xlsx",
         trans_final = "{out}/final/transmission_pairs_FINAL.xlsx"
+    conda: "envs/analyze.yaml"
     script:
         "scripts/generate_excel_outputs.py"
 
@@ -402,7 +445,7 @@ rule generate_html_map:
     input:
         abs_csv   = "{out}/dcc/abscessus_assignments.csv",
         mas_csv   = "{out}/dcc/massiliense_assignments.csv",
-        locations = config.get("locations_file", "")
+        locations = [] if not config.get("locations_file") else [config["locations_file"]]
     output:
         html = "{out}/final/DCC_transmission_map.html"
     script:
