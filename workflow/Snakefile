@@ -29,6 +29,37 @@ def get_species_refs():
 SAMPLES = get_samples()
 OUT = config["output_dir"]
 
+# ── Checkpoint helper functions ───────────────────────────────
+def get_clusters(wildcards):
+    """Get list of cluster FASTA files after FastBAPS runs."""
+    import glob
+    checkpoint_output = checkpoints.split_clusters.get(**wildcards).output.done
+    outdir = os.path.dirname(checkpoint_output)
+    fastas = glob.glob(os.path.join(outdir, "cluster_*.fasta"))
+    return fastas
+
+def get_cluster_ids(wildcards):
+    """Get list of cluster IDs after FastBAPS runs."""
+    import glob, re
+    checkpoint_output = checkpoints.split_clusters.get(**wildcards).output.done
+    outdir = os.path.dirname(checkpoint_output)
+    fastas = glob.glob(os.path.join(outdir, "cluster_*.fasta"))
+    ids = [re.search(r"cluster_(.+)\.fasta", f).group(1) for f in fastas]
+    return ids
+
+def get_gubbins_alns(wildcards):
+    """Get all Gubbins filtered alignments for snp-dists."""
+    import glob, re
+    checkpoint_output = checkpoints.split_clusters.get(
+        out=wildcards.out, subsp=wildcards.subsp).output.done
+    outdir = os.path.dirname(checkpoint_output)
+    fastas = glob.glob(os.path.join(outdir, "cluster_*.fasta"))
+    ids = [re.search(r"cluster_(.+)\.fasta", f).group(1) for f in fastas]
+    return expand("{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta",
+                  out=wildcards.out, subsp=wildcards.subsp, cluster=ids)
+
+
+
 # ============================================================
 # PHASE 0a — INPUT VALIDATION
 # ============================================================
@@ -456,29 +487,86 @@ rule fastbaps_massiliense:
 # PHASE 4 — RECOMBINATION REMOVAL (GUBBINS)
 # ============================================================
 
-rule split_clusters_abscessus:
+checkpoint split_clusters:
     input:
-        aln      = "{out}/core/abscessus/core.aln",
-        clusters = "{out}/fastbaps/abscessus/clusters.csv"
+        aln      = "{out}/core/{subsp}/core.aln",
+        clusters = "{out}/fastbaps/{subsp}/clusters.csv"
     output:
-        done = "{out}/gubbins/abscessus/.split_done"
+        done = "{out}/gubbins/{subsp}/.split_done"
     params:
-        outdir   = "{out}/gubbins/abscessus",
+        outdir   = "{out}/gubbins/{subsp}",
         min_seqs = config["gubbins"]["min_taxa"]
     script:
         "scripts/split_by_cluster.py"
 
-rule split_clusters_massiliense:
+
+
+
+# ============================================================
+# PHASE 4 — RECOMBINATION REMOVAL (GUBBINS)
+# ============================================================
+
+rule gubbins:
+    """Run Gubbins recombination removal on each FastBAPS cluster."""
     input:
-        aln      = "{out}/core/massiliense/core.aln",
-        clusters = "{out}/fastbaps/massiliense/clusters.csv"
+        fasta = "{out}/gubbins/{subsp}/cluster_{cluster}.fasta"
     output:
-        done = "{out}/gubbins/massiliense/.split_done"
+        filtered = "{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta",
+        tree     = "{out}/gubbins/{subsp}/cluster_{cluster}.final_tree.tre"
     params:
-        outdir   = "{out}/gubbins/massiliense",
-        min_seqs = config["gubbins"]["min_taxa"]
-    script:
-        "scripts/split_by_cluster.py"
+        prefix             = "{out}/gubbins/{subsp}/cluster_{cluster}",
+        tree_builder       = config["gubbins"]["tree_builder"],
+        first_tree_builder = config["gubbins"]["first_tree_builder"]
+    threads: config["gubbins"]["threads"]
+    conda: "envs/gubbins.yaml"
+    shell:
+        """
+        n_seqs=$(grep -c "^>" {input.fasta} || echo 0)
+        if [ "$n_seqs" -lt 4 ]; then
+            echo "Cluster {wildcards.cluster}: $n_seqs seqs — too few for Gubbins, copying as-is"
+            cp {input.fasta} {output.filtered}
+            touch {output.tree}
+        else
+            cd $(dirname {params.prefix})
+            run_gubbins.py \
+                --prefix cluster_{wildcards.cluster} \
+                --threads {threads} \
+                --tree-builder {params.tree_builder} \
+                --first-tree-builder {params.first_tree_builder} \
+                cluster_{wildcards.cluster}.fasta \
+            || run_gubbins.py \
+                --prefix cluster_{wildcards.cluster} \
+                --threads {threads} \
+                --tree-builder fasttree \
+                --first-tree-builder fasttree \
+                cluster_{wildcards.cluster}.fasta
+        fi
+        """
+
+rule snp_dists_cluster:
+    """Calculate pairwise SNP distances from Gubbins-filtered cluster alignments."""
+    input:
+        fasta = "{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta"
+    output:
+        tsv = "{out}/snp_distances/{subsp}/cluster_{cluster}.tsv"
+    conda: "envs/snippy.yaml"
+    shell:
+        """
+        if [ -s {input.fasta} ]; then
+            snp-dists {input.fasta} > {output.tsv}
+        else
+            touch {output.tsv}
+        fi
+        """
+
+rule merge_cluster_distances:
+    """Merge all per-cluster SNP distance files for transmission pair analysis."""
+    input:
+        get_gubbins_alns
+    output:
+        done = "{out}/snp_distances/{subsp}/.merge_done"
+    shell:
+        "touch {output.done}"
 
 # ============================================================
 # PHASE 5 — SNP DISTANCES
@@ -525,15 +613,19 @@ rule assign_dccs:
 
 rule find_transmission_pairs:
     input:
-        abs_dists = "{out}/snp_distances/abscessus/whole_cohort.tsv",
-        mas_dists = "{out}/snp_distances/massiliense/whole_cohort.tsv",
-        abs_csv   = "{out}/dcc/abscessus_assignments.csv",
-        mas_csv   = "{out}/dcc/massiliense_assignments.csv"
+        abs_dists     = "{out}/snp_distances/abscessus/whole_cohort.tsv",
+        mas_dists     = "{out}/snp_distances/massiliense/whole_cohort.tsv",
+        abs_csv       = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv       = "{out}/dcc/massiliense_assignments.csv",
+        abs_gubbins   = "{out}/snp_distances/abscessus/.merge_done",
+        mas_gubbins   = "{out}/snp_distances/massiliense/.merge_done"
     output:
         combined = "{out}/transmission/pairs_all_thresholds.csv"
     params:
-        threshold_1 = config["transmission"]["threshold_strict"],
-        threshold_2 = config["transmission"]["threshold_broad"]
+        threshold_1   = config["transmission"]["threshold_strict"],
+        threshold_2   = config["transmission"]["threshold_broad"],
+        abs_clust_dir = "{out}/snp_distances/abscessus",
+        mas_clust_dir = "{out}/snp_distances/massiliense"
     script:
         "scripts/find_transmission_pairs.py"
 
