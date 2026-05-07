@@ -65,12 +65,21 @@ snakemake --cores 16 --use-conda
 | 2 | MASH | Subspecies assignment → abscessus / massiliense / bolletii |
 | 3 | Snippy | SNP calling against subspecies reference genome |
 | 4 | snippy-core | Core SNP alignment per subspecies including DCC references |
-| 5 | FastBAPS | Population structure clustering |
-| 6 | Gubbins | Recombination removal per cluster |
-| 7 | snp-dists | Pairwise SNP distance matrices |
+| 5 | FastBAPS | Population structure clustering — assigns isolates to lineages |
+| 6 | Gubbins | Recombination removal per FastBAPS cluster — **required before SNP distances** |
+| 7 | snp-dists | Pairwise SNP distances from Gubbins-filtered alignments |
 | 8 | Custom | DCC assignment → DCC1–7 + Non-DCC (500 SNP threshold) |
 | 9 | RAxML | Phylogenetic trees — GTR+GAMMA + 100 bootstraps |
 | 10 | Custom | Outputs — Excel spreadsheets + interactive HTML map |
+
+### Why Gubbins is critical
+
+*M. abscessus* undergoes frequent recombination — horizontal gene transfer events that introduce large blocks of foreign DNA which appear as clusters of SNPs. Without removing these recombinant regions, SNP distances between isolates are artificially inflated, leading to:
+
+- **False negatives** — genuine transmission pairs that appear too distant
+- **False positives** — unrelated isolates that appear close due to shared recombination events
+
+Gubbins identifies and masks recombinant regions per FastBAPS cluster, producing a **recombination-free SNP alignment** that accurately reflects vertical evolutionary history. All transmission pair calls (≤10 and ≤20 SNPs) are made from these filtered alignments, exactly matching the methodology of Ruis et al. 2021.
 
 ## Input Validation
 
