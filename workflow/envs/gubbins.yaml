@@ -1,0 +1,8 @@
+name: gubbins
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - gubbins>=3.3
+  - iqtree>=2.0
+  - fasttree>=2.1

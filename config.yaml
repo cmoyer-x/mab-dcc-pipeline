@@ -1,0 +1,104 @@
+# ============================================================
+# M. abscessus DCC Assignment Pipeline — Configuration File
+# ============================================================
+
+# Input directory containing FASTA assemblies
+input_dir: "input/assemblies"
+
+# Output directory
+output_dir: "results"
+
+# Species-level MASH reference panel
+species_refs_dir: "references/species"
+
+# Subspecies references
+subspecies_refs:
+  abscessus:
+    name: "ATCC19977"
+    accession: "CU458896.1"
+    path: "references/subspecies/ATCC19977.fasta"
+  massiliense:
+    name: "CIP_108297"
+    accession: "GCF_001792625.1"
+    path: "references/subspecies/CIP_108297.fasta"
+  bolletii:
+    name: "CCUG_50184"
+    accession: "GCF_000701545.1"
+    path: "references/subspecies/CCUG_50184.fasta"
+
+# DCC anchor references — Ruis et al. 2021 + Dedrick et al.
+dcc_refs:
+  DCC1:
+    accessions: ["SRR36966619"]
+    subspecies: "abscessus"
+  DCC2:
+    accessions: ["ERR363247"]
+    subspecies: "abscessus"
+  DCC3:
+    accessions: ["ERR1045629"]
+    subspecies: "massiliense"
+  DCC4:
+    accessions: ["ERR1081288", "ERR494841"]
+    subspecies: "abscessus"
+  DCC5:
+    accessions: ["ERR363431", "ERR484982"]
+    subspecies: "abscessus"
+  DCC6:
+    accessions: ["ERR2524314"]
+    assembly_accessions:
+      A47: "GCF_002799795.1"
+    subspecies: "massiliense"
+  DCC7:
+    accessions: ["ERR363320"]
+    assembly_accessions:
+      FLAC047: "GCF_002140035.1"
+    subspecies: "massiliense"
+
+# MASH parameters
+mash:
+  sketch_size: 1000
+  kmer_size: 21
+  species_threshold: 0.05
+  subspecies_threshold: 0.05
+
+# Snippy parameters
+snippy:
+  cpus: 4
+  min_frac: 0.9
+  min_quality: 20
+
+# FastBAPS parameters
+fastbaps:
+  levels: 2
+  prior: "optimise.symmetric"
+  threads: 4
+
+# Gubbins parameters
+gubbins:
+  threads: 4
+  tree_builder: "iqtree"
+  first_tree_builder: "fasttree"
+  min_taxa: 4
+
+# RAxML parameters
+raxml:
+  model: "GTRGAMMA"
+  seed: 12345
+  bootstrap_seed: 12345
+  bootstraps: 100
+  threads: 4
+
+# Transmission thresholds
+transmission:
+  threshold_strict: 10
+  threshold_broad: 20
+  dcc_threshold: 500
+
+# Optional location data for HTML map
+locations_file: "input/locations.xlsx"
+
+# Computational resources
+resources:
+  default_cores: 4
+  high_cores: 16
+  mem_mb: 8000

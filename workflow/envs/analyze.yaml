@@ -1,0 +1,12 @@
+name: analyze
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.8
+  - pandas>=1.3
+  - numpy
+  - scipy
+  - biopython>=1.79
+  - openpyxl
+  - matplotlib

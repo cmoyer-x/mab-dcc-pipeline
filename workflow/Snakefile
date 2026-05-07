@@ -1,0 +1,420 @@
+# ============================================================
+# M. abscessus DCC Assignment Pipeline
+# Snakemake workflow
+#
+# Usage:
+#   snakemake --cores 16 --use-conda
+#   snakemake --cores 16 --use-conda --dry-run
+#
+# References:
+#   Ruis et al. 2021 (Nature Microbiology) PMC8478660
+#   Bronson et al. 2021 PMC8390669
+#   Dedrick et al. PMC10583746
+# ============================================================
+
+configfile: "config.yaml"
+
+import os
+import glob
+
+def get_samples():
+    fastas = (glob.glob(os.path.join(config["input_dir"], "*.fasta")) +
+              glob.glob(os.path.join(config["input_dir"], "*.fna")))
+    return [os.path.splitext(os.path.basename(f))[0] for f in fastas]
+
+def get_species_refs():
+    return (glob.glob(os.path.join(config["species_refs_dir"], "*.fna")) +
+            glob.glob(os.path.join(config["species_refs_dir"], "*.fasta")))
+
+SAMPLES = get_samples()
+OUT = config["output_dir"]
+
+# ── Target rule ───────────────────────────────────────────────
+rule all:
+    input:
+        expand("{out}/final/DCC_assignments_FINAL.xlsx", out=OUT),
+        expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
+        expand("{out}/final/DCC_transmission_map.html", out=OUT),
+        expand("{out}/final/pipeline_summary.html", out=OUT),
+        expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
+               out=OUT, subsp=["abscessus", "massiliense"]),
+
+# ============================================================
+# PHASE 1 — SPECIES IDENTIFICATION (MASH)
+# ============================================================
+
+rule mash_sketch_references:
+    input:
+        refs = get_species_refs()
+    output:
+        sketch = "{out}/mash/species_refs.msh"
+    conda: "envs/mash.yaml"
+    threads: config["resources"]["default_cores"]
+    shell:
+        """
+        mash sketch -o {wildcards.out}/mash/species_refs \
+            -s {config[mash][sketch_size]} \
+            -k {config[mash][kmer_size]} \
+            {input.refs}
+        """
+
+rule mash_species_distance:
+    input:
+        query  = config["input_dir"] + "/{sample}.fasta",
+        sketch = "{out}/mash/species_refs.msh"
+    output:
+        dist = "{out}/mash/distances/{sample}.tsv"
+    conda: "envs/mash.yaml"
+    shell:
+        "mash dist {input.sketch} {input.query} > {output.dist}"
+
+rule assign_species:
+    input:
+        distances = expand("{out}/mash/distances/{sample}.tsv",
+                          out=OUT, sample=SAMPLES)
+    output:
+        assignments       = "{out}/mash/species_assignments.tsv",
+        abscessus_list    = "{out}/mash/abscessus_samples.txt",
+        non_abscessus_list= "{out}/mash/non_abscessus_samples.txt",
+        report            = "{out}/mash/species_report.txt"
+    params:
+        threshold = config["mash"]["species_threshold"]
+    script:
+        "scripts/assign_species.py"
+
+rule mash_subspecies_distance:
+    input:
+        query          = config["input_dir"] + "/{sample}.fasta",
+        abscessus_list = "{out}/mash/abscessus_samples.txt"
+    output:
+        dist = "{out}/mash/subspecies/{sample}.tsv"
+    conda: "envs/mash.yaml"
+    shell:
+        """
+        if grep -q {wildcards.sample} {input.abscessus_list}; then
+            mash dist \
+                {config[subspecies_refs][abscessus][path]} \
+                {config[subspecies_refs][massiliense][path]} \
+                {config[subspecies_refs][bolletii][path]} \
+                {input.query} > {output.dist}
+        else
+            touch {output.dist}
+        fi
+        """
+
+rule assign_subspecies:
+    input:
+        distances      = expand("{out}/mash/subspecies/{sample}.tsv",
+                               out=OUT, sample=SAMPLES),
+        abscessus_list = "{out}/mash/abscessus_samples.txt"
+    output:
+        assignments = "{out}/mash/subspecies_assignments.tsv",
+        abs_list    = "{out}/mash/subspecies/abscessus_samples.txt",
+        mas_list    = "{out}/mash/subspecies/massiliense_samples.txt",
+        bol_list    = "{out}/mash/subspecies/bolletii_samples.txt"
+    params:
+        threshold = config["mash"]["subspecies_threshold"]
+    script:
+        "scripts/assign_subspecies.py"
+
+# ============================================================
+# PHASE 2 — SNP CALLING (SNIPPY)
+# ============================================================
+
+rule snippy_abscessus:
+    input:
+        fasta = config["input_dir"] + "/{sample}.fasta",
+        ref   = config["subspecies_refs"]["abscessus"]["path"],
+        list  = "{out}/mash/subspecies/abscessus_samples.txt"
+    output:
+        vcf = "{out}/snippy/abscessus/{sample}/snps.vcf",
+        txt = "{out}/snippy/abscessus/{sample}/snps.txt"
+    conda: "envs/snippy.yaml"
+    threads: config["snippy"]["cpus"]
+    shell:
+        """
+        if grep -q {wildcards.sample} {input.list}; then
+            snippy --ref {input.ref} \
+                   --ctgs {input.fasta} \
+                   --outdir {wildcards.out}/snippy/abscessus/{wildcards.sample} \
+                   --cpus {threads} \
+                   --force
+        else
+            mkdir -p {wildcards.out}/snippy/abscessus/{wildcards.sample}
+            touch {output.vcf} {output.txt}
+        fi
+        """
+
+rule snippy_massiliense:
+    input:
+        fasta = config["input_dir"] + "/{sample}.fasta",
+        ref   = config["subspecies_refs"]["massiliense"]["path"],
+        list  = "{out}/mash/subspecies/massiliense_samples.txt"
+    output:
+        vcf = "{out}/snippy/massiliense/{sample}/snps.vcf",
+        txt = "{out}/snippy/massiliense/{sample}/snps.txt"
+    conda: "envs/snippy.yaml"
+    threads: config["snippy"]["cpus"]
+    shell:
+        """
+        if grep -q {wildcards.sample} {input.list}; then
+            snippy --ref {input.ref} \
+                   --ctgs {input.fasta} \
+                   --outdir {wildcards.out}/snippy/massiliense/{wildcards.sample} \
+                   --cpus {threads} \
+                   --force
+        else
+            mkdir -p {wildcards.out}/snippy/massiliense/{wildcards.sample}
+            touch {output.vcf} {output.txt}
+        fi
+        """
+
+rule snippy_core_abscessus:
+    input:
+        vcfs = expand("{out}/snippy/abscessus/{sample}/snps.vcf",
+                     out=OUT, sample=SAMPLES),
+        ref  = config["subspecies_refs"]["abscessus"]["path"]
+    output:
+        aln = "{out}/core/abscessus/core.aln"
+    conda: "envs/snippy.yaml"
+    shell:
+        "snippy-core --ref {input.ref} --prefix {wildcards.out}/core/abscessus/core {wildcards.out}/snippy/abscessus/*/"
+
+rule snippy_core_massiliense:
+    input:
+        vcfs = expand("{out}/snippy/massiliense/{sample}/snps.vcf",
+                     out=OUT, sample=SAMPLES),
+        ref  = config["subspecies_refs"]["massiliense"]["path"]
+    output:
+        aln = "{out}/core/massiliense/core.aln"
+    conda: "envs/snippy.yaml"
+    shell:
+        "snippy-core --ref {input.ref} --prefix {wildcards.out}/core/massiliense/core {wildcards.out}/snippy/massiliense/*/"
+
+# ============================================================
+# PHASE 3 — POPULATION STRUCTURE (FASTBAPS)
+# ============================================================
+
+rule fastbaps_abscessus:
+    input:
+        aln = "{out}/core/abscessus/core.aln"
+    output:
+        clusters = "{out}/fastbaps/abscessus/clusters.csv"
+    conda: "envs/fastbaps.yaml"
+    threads: config["fastbaps"]["threads"]
+    shell:
+        """
+        run_fastbaps \
+            -i {input.aln} \
+            -o {output.clusters} \
+            -p {config[fastbaps][prior]} \
+            -l {config[fastbaps][levels]} \
+            -t {threads}
+        """
+
+rule fastbaps_massiliense:
+    input:
+        aln = "{out}/core/massiliense/core.aln"
+    output:
+        clusters = "{out}/fastbaps/massiliense/clusters.csv"
+    conda: "envs/fastbaps.yaml"
+    threads: config["fastbaps"]["threads"]
+    shell:
+        """
+        run_fastbaps \
+            -i {input.aln} \
+            -o {output.clusters} \
+            -p {config[fastbaps][prior]} \
+            -l {config[fastbaps][levels]} \
+            -t {threads}
+        """
+
+# ============================================================
+# PHASE 4 — RECOMBINATION REMOVAL (GUBBINS)
+# ============================================================
+
+rule split_clusters_abscessus:
+    input:
+        aln      = "{out}/core/abscessus/core.aln",
+        clusters = "{out}/fastbaps/abscessus/clusters.csv"
+    output:
+        done = "{out}/gubbins/abscessus/.split_done"
+    params:
+        outdir   = "{out}/gubbins/abscessus",
+        min_seqs = config["gubbins"]["min_taxa"]
+    script:
+        "scripts/split_by_cluster.py"
+
+rule split_clusters_massiliense:
+    input:
+        aln      = "{out}/core/massiliense/core.aln",
+        clusters = "{out}/fastbaps/massiliense/clusters.csv"
+    output:
+        done = "{out}/gubbins/massiliense/.split_done"
+    params:
+        outdir   = "{out}/gubbins/massiliense",
+        min_seqs = config["gubbins"]["min_taxa"]
+    script:
+        "scripts/split_by_cluster.py"
+
+# ============================================================
+# PHASE 5 — SNP DISTANCES
+# ============================================================
+
+rule snp_dists_whole_cohort:
+    input:
+        aln = "{out}/core/{subsp}/core.aln"
+    output:
+        tsv = "{out}/snp_distances/{subsp}/whole_cohort.tsv"
+    conda: "envs/snippy.yaml"
+    shell:
+        "snp-dists {input.aln} > {output.tsv}"
+
+# ============================================================
+# PHASE 6 — DCC ASSIGNMENT
+# ============================================================
+
+rule assign_dccs:
+    input:
+        abs_dists    = "{out}/snp_distances/abscessus/whole_cohort.tsv",
+        mas_dists    = "{out}/snp_distances/massiliense/whole_cohort.tsv",
+        abs_clusters = "{out}/fastbaps/abscessus/clusters.csv",
+        mas_clusters = "{out}/fastbaps/massiliense/clusters.csv"
+    output:
+        abs_csv = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv = "{out}/dcc/massiliense_assignments.csv",
+        summary = "{out}/dcc/dcc_summary.tsv"
+    params:
+        dcc_threshold = config["transmission"]["dcc_threshold"],
+        dcc_refs      = config["dcc_refs"]
+    script:
+        "scripts/assign_dccs.py"
+
+# ============================================================
+# PHASE 7 — TRANSMISSION PAIRS
+# ============================================================
+
+rule find_transmission_pairs:
+    input:
+        abs_dists = "{out}/snp_distances/abscessus/whole_cohort.tsv",
+        mas_dists = "{out}/snp_distances/massiliense/whole_cohort.tsv",
+        abs_csv   = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv   = "{out}/dcc/massiliense_assignments.csv"
+    output:
+        combined = "{out}/transmission/pairs_all_thresholds.csv"
+    params:
+        threshold_1 = config["transmission"]["threshold_strict"],
+        threshold_2 = config["transmission"]["threshold_broad"]
+    script:
+        "scripts/find_transmission_pairs.py"
+
+# ============================================================
+# PHASE 8 — PHYLOGENETIC TREES (RAXML)
+# ============================================================
+
+rule raxml_bootstrap:
+    input:
+        aln = "{out}/core/{subsp}/core.aln"
+    output:
+        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
+    params:
+        model   = config["raxml"]["model"],
+        seed    = config["raxml"]["seed"],
+        bseed   = config["raxml"]["bootstrap_seed"],
+        n_boot  = config["raxml"]["bootstraps"],
+        workdir = "{out}/trees/{subsp}"
+    threads: config["raxml"]["threads"]
+    conda: "envs/raxml.yaml"
+    shell:
+        """
+        mkdir -p {params.workdir}
+        raxmlHPC-PTHREADS \
+            -s {input.aln} \
+            -n {wildcards.subsp}_raxml \
+            -m {params.model} \
+            -p {params.seed} \
+            -b {params.bseed} \
+            -N {params.n_boot} \
+            -T {threads} \
+            -w $(realpath {params.workdir})
+        """
+
+rule raxml_best_tree:
+    input:
+        aln       = "{out}/core/{subsp}/core.aln",
+        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
+    output:
+        best = "{out}/trees/{subsp}/RAxML_bestTree.{subsp}_best"
+    params:
+        model   = config["raxml"]["model"],
+        seed    = config["raxml"]["seed"],
+        workdir = "{out}/trees/{subsp}"
+    threads: config["raxml"]["threads"]
+    conda: "envs/raxml.yaml"
+    shell:
+        """
+        raxmlHPC-PTHREADS \
+            -s {input.aln} \
+            -n {wildcards.subsp}_best \
+            -m {params.model} \
+            -p {params.seed} \
+            -T {threads} \
+            -w $(realpath {params.workdir})
+        """
+
+rule raxml_bipartitions:
+    input:
+        best      = "{out}/trees/{subsp}/RAxML_bestTree.{subsp}_best",
+        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
+    output:
+        bipartitions = "{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final"
+    params:
+        model   = config["raxml"]["model"],
+        workdir = "{out}/trees/{subsp}"
+    conda: "envs/raxml.yaml"
+    shell:
+        """
+        raxmlHPC \
+            -f b \
+            -t {input.best} \
+            -z {input.bootstrap} \
+            -m {params.model} \
+            -n {wildcards.subsp}_final \
+            -w $(realpath {params.workdir})
+        """
+
+# ============================================================
+# PHASE 9 — OUTPUTS
+# ============================================================
+
+rule generate_excel_outputs:
+    input:
+        abs_csv   = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv   = "{out}/dcc/massiliense_assignments.csv",
+        pairs_all = "{out}/transmission/pairs_all_thresholds.csv"
+    output:
+        dcc_final   = "{out}/final/DCC_assignments_FINAL.xlsx",
+        trans_final = "{out}/final/transmission_pairs_FINAL.xlsx"
+    script:
+        "scripts/generate_excel_outputs.py"
+
+rule generate_html_map:
+    input:
+        abs_csv   = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv   = "{out}/dcc/massiliense_assignments.csv",
+        locations = config.get("locations_file", "")
+    output:
+        html = "{out}/final/DCC_transmission_map.html"
+    script:
+        "scripts/generate_html_map.py"
+
+rule generate_summary_report:
+    input:
+        species_report = "{out}/mash/species_report.txt",
+        subsp_assign   = "{out}/mash/subspecies_assignments.tsv",
+        dcc_summary    = "{out}/dcc/dcc_summary.tsv",
+        pairs_all      = "{out}/transmission/pairs_all_thresholds.csv"
+    output:
+        html = "{out}/final/pipeline_summary.html"
+    script:
+        "scripts/generate_summary_report.py"

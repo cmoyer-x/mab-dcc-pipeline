@@ -1,0 +1,8 @@
+name: fastbaps
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-fastbaps
+  - r-base>=4.0

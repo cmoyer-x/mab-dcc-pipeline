@@ -1,0 +1,11 @@
+name: snippy
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - snippy=4.6.0
+  - snp-dists>=0.8
+  - python>=3.8
+  - biopython>=1.79
+  - pandas

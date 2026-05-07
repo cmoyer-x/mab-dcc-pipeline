@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+message: "If you use this pipeline, please cite it as below."
+authors:
+  - family-names: Moyer
+    given-names: Casey
+    affiliation: University of Pittsburgh
+title: "mab-dcc-pipeline: M. abscessus DCC Assignment Pipeline"
+version: 1.0.0
+date-released: 2025-05-07
+url: "https://github.com/cmoyer-x/mab-dcc-pipeline"
+references:
+  - type: article
+    authors:
+      - family-names: Ruis
+        given-names: Christopher
+    title: "Dissemination of Mycobacterium abscessus via global transmission networks"
+    year: 2021
+    journal: Nature Microbiology
+    doi: "10.1038/s41564-021-00963-3"
+  - type: article
+    authors:
+      - family-names: Bronson
+        given-names: Ryan A
+    title: "Global phylogenomic analyses of Mycobacterium abscessus"
+    year: 2021
+    journal: Nature Communications
+    pmcid: PMC8390669
+  - type: article
+    authors:
+      - family-names: Dedrick
+        given-names: Rebekah M
+    title: "Phage therapy of Mycobacterium infections"
+    year: 2023
+    pmcid: PMC10583746

@@ -1,0 +1,33 @@
+# Pipeline outputs
+results/
+logs/
+
+# Large sequence files
+*.fastq.gz
+*.fastq
+*.bam
+*.sam
+
+# Snakemake temp files
+.snakemake/
+__pycache__/
+*.pyc
+*.pyo
+
+# Reference genomes downloaded at runtime
+references/subspecies/*.fasta
+references/subspecies/*.fna
+
+# User input data
+input/assemblies/*.fasta
+input/assemblies/*.fna
+input/locations.xlsx
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+.vscode/
+.idea/
