@@ -4,7 +4,7 @@ A Snakemake workflow for assigning clinical *Mycobacterium abscessus* isolates t
 
 ## Background
 
-*Mycobacterium abscessus* is a rapidly growing non-tuberculous mycobacterium (NTM) and an increasingly important opportunistic pathogen, particularly in patients with cystic fibrosis (CF), bronchiectasis, and other chronic lung diseases. It is notoriously difficult to treat due to intrinsic and acquired antibiotic resistance.
+*Mycobacterium abscessus* is a rapidly growing nontuberculous mycobacterium (NTM) and an increasingly important opportunistic pathogen, particularly in patients with cystic fibrosis (CF), bronchiectasis, and other chronic lung diseases. It is notoriously difficult to treat due to intrinsic and acquired antibiotic resistance.
 
 ### What are Dominant Circulating Clones (DCCs)?
 
@@ -32,39 +32,6 @@ Within each DCC, isolates that are highly similar (≤10–20 SNPs after recombi
 - **≤10 SNPs** — likely direct transmission (Ruis et al. 2021)
 - **≤20 SNPs** — probable transmission cluster (Bronson et al. 2021)
 
-## Cohort-level vs Global Analysis
-
-### Unbiased cohort analysis (default)
-By default this pipeline is designed for **unbiased clinical cohort analysis** — you provide all isolates from your patient population and the pipeline assigns them to DCCs without any pre-selection. This approach:
-- Captures the true diversity of *M. abscessus* circulating in your patient population
-- Identifies Non-DCC lineages that may represent novel or emerging clones
-- Avoids the sampling bias introduced by deliberately including only known DCC representatives
-- Produces a higher proportion of Non-DCC isolates than published global datasets — this is expected and biologically meaningful, not a methodological flaw
-
-### Adding global reference genomes (biased toward known DCCs)
-To anchor your analysis to the global DCC framework more tightly, you can supplement your cohort with publicly available isolates from published studies. This approach is useful when:
-- You want to formally validate Non-DCC clusters against the full global dataset
-- You are proposing a new DCC and need multi-continental evidence
-- You want to compare your cohort directly against Ruis et al. 2021 figures
-
-To add global genomes, download SRA accessions from published studies and place them in `input/assemblies/` alongside your cohort isolates. Key public datasets:
-
-| Study | Accessions | N isolates | Notes |
-|-------|-----------|-----------|-------|
-| Ruis et al. 2021 | ERP017141 | 2,045 | Primary DCC definition dataset |
-| Bronson et al. 2021 | PRJNA648717 | ~200 | North American cohort |
-| Dedrick et al. | PRJNA738526 | 90 | Lab paper reference strains |
-
-> **Warning:** Adding global genomes significantly increases runtime. The full Ruis et al. dataset (2,045 isolates) requires ~1TB storage and several days of compute time.
-
-### Interpreting Non-DCC isolates
-Non-DCC isolates in your cohort are not sequencing failures or errors. They represent:
-1. **Genuinely distinct lineages** — phylogenetically intermediate between defined DCCs, likely representing ancestral lineages that predate DCC emergence
-2. **Locally circulating clones** — lineages with active transmission within your cohort that have not yet been sampled globally at sufficient scale to meet formal DCC criteria
-3. **Independent environmental acquisitions** — isolates acquired directly from environmental sources rather than patient-to-patient transmission
-
-A cluster of Non-DCC isolates meeting ≥10 isolates from ≥2 countries at the 500 SNP threshold should be considered a **candidate novel DCC** and reported as such.
-
 ## Quick Start
 
 ```bash
@@ -85,20 +52,67 @@ snakemake --cores 16 --use-conda --dry-run
 snakemake --cores 16 --use-conda
 ```
 
+> **Note:** All reference genomes and DCC anchor sequences are downloaded automatically on first run. This requires internet access and approximately 3–4GB of storage. Subsequent runs skip the download step entirely.
+
 ## Pipeline Overview
 
 | Step | Tool | Description |
 |------|------|-------------|
+| 0a | Python | Input validation — checks FASTA format, file sizes, isolate count |
+| 0b | wget | Download subspecies references (ATCC19977, CIP_108297, CCUG_50184) |
+| 0c | wget | Download DCC anchor sequences (SRR36966619, ERR363247, etc.) |
 | 1 | MASH | Species identification — non-*M. abscessus* excluded and logged |
 | 2 | MASH | Subspecies assignment → abscessus / massiliense / bolletii |
 | 3 | Snippy | SNP calling against subspecies reference genome |
-| 4 | snippy-core | Core SNP alignment per subspecies |
+| 4 | snippy-core | Core SNP alignment per subspecies including DCC references |
 | 5 | FastBAPS | Population structure clustering |
 | 6 | Gubbins | Recombination removal per cluster |
 | 7 | snp-dists | Pairwise SNP distance matrices |
 | 8 | Custom | DCC assignment → DCC1–7 + Non-DCC (500 SNP threshold) |
 | 9 | RAxML | Phylogenetic trees — GTR+GAMMA + 100 bootstraps |
 | 10 | Custom | Outputs — Excel spreadsheets + interactive HTML map |
+
+## Input Validation
+
+The pipeline automatically validates all input files before starting. It will:
+
+- **Fail with an error** if fewer than 5 isolates are provided
+- **Warn** if fewer than 20 isolates are provided — FastBAPS and RAxML require sufficient diversity to produce meaningful results
+- **Warn** if fewer than 50 isolates are provided — recommended minimum for reliable DCC assignment
+- **Warn** if any FASTA file is smaller than 500KB — may indicate an incomplete assembly
+- **Fail with an error** if any FASTA file is empty or malformed
+
+Example warning for small datasets:
+```
+[mab-dcc-pipeline] WARNING: Only 15 isolates found. FastBAPS clustering and
+RAxML trees require at least 20-50 isolates for meaningful results.
+```
+
+## Automatic Reference Downloads
+
+On first run the pipeline automatically downloads all required references:
+
+**Subspecies references** (downloaded to `references/subspecies/`):
+
+| File | Strain | Accession | Purpose |
+|------|--------|-----------|---------|
+| ATCC19977.fasta | *M. a. abscessus* | GCF_000069185.1 | SNP calling reference |
+| CIP_108297.fasta | *M. a. massiliense* | GCF_001792625.1 | SNP calling reference |
+| CCUG_50184.fasta | *M. a. bolletii* | GCF_000701545.1 | SNP calling reference |
+
+**DCC anchor sequences** (downloaded to `results/dcc_refs/`):
+
+| Accession | DCC | Source |
+|-----------|-----|--------|
+| SRR36966619 | DCC1 | Ruis et al. 2021 |
+| ERR363247 | DCC2 | Ruis et al. 2021 |
+| ERR1045629 | DCC3 | Ruis et al. 2021 |
+| ERR1081288 + ERR494841 | DCC4 | Ruis + Dedrick et al. |
+| ERR363431 + ERR484982 | DCC5 | Ruis + Dedrick et al. |
+| ERR2524314 + A47 | DCC6 | Ruis + Dedrick et al. |
+| ERR363320 + FLAC047 | DCC7 | Ruis + Dedrick et al. |
+
+> If your server has no internet access, download these files on a local machine and transfer them manually to the paths above.
 
 ## Outputs
 
@@ -132,8 +146,6 @@ All dependencies managed automatically via `--use-conda`.
 
 Edit `config.yaml` to set:
 - Input/output directories
-- Subspecies reference genomes
-- DCC anchor accessions (Ruis et al. 2021 + Dedrick et al.)
 - SNP thresholds (default: ≤10 strict, ≤20 broad, 500 DCC membership)
 - Computational resources (cores, memory)
 
@@ -149,6 +161,48 @@ Edit `config.yaml` to set:
 | DCC6 | *M. a. massiliense* | ERR2524314 + A47 | Ruis + Dedrick et al. |
 | DCC7 | *M. a. massiliense* | ERR363320 + FLAC047 | Ruis + Dedrick et al. |
 
+## Cohort-level vs Global Analysis
+
+### Unbiased cohort analysis (default)
+
+By default this pipeline is designed for **unbiased clinical cohort analysis** — you provide all isolates from your patient population and the pipeline assigns them to DCCs without any pre-selection. This approach:
+- Captures the true diversity of *M. abscessus* circulating in your patient population
+- Identifies Non-DCC lineages that may represent novel or emerging clones
+- Avoids the sampling bias introduced by deliberately including only known DCC representatives
+- Produces a higher proportion of Non-DCC isolates than published global datasets — this is expected and biologically meaningful, not a methodological flaw
+
+### Adding global reference genomes (biased toward known DCCs)
+
+To anchor your analysis to the global DCC framework more tightly, you can supplement your cohort with publicly available isolates from published studies. This approach is useful when:
+- You want to formally validate Non-DCC clusters against the full global dataset
+- You are proposing a new DCC and need multi-continental evidence
+- You want to compare your cohort directly against Ruis et al. 2021 figures
+
+To add global genomes, download SRA accessions from published studies and place them in `input/assemblies/` alongside your cohort isolates. Key public datasets:
+
+| Study | Accessions | N isolates | Notes |
+|-------|-----------|-----------|-------|
+| Ruis et al. 2021 | ERP017141 | 2,045 | Primary DCC definition dataset |
+| Bronson et al. 2021 | PRJNA648717 | ~200 | North American cohort |
+| Dedrick et al. | PRJNA738526 | 90 | Lab paper reference strains |
+
+> **Warning:** Adding global genomes significantly increases runtime. Consider downloading only the DCC representative strains rather than the full dataset.
+
+### Interpreting Non-DCC isolates
+
+Non-DCC isolates are not sequencing failures. They represent:
+1. **Genuinely distinct lineages** — phylogenetically intermediate between defined DCCs
+2. **Locally circulating clones** — lineages with active transmission within your cohort not yet sampled globally at sufficient scale to meet formal DCC criteria
+3. **Independent environmental acquisitions** — isolates acquired directly from environmental sources
+
+A cluster of Non-DCC isolates meeting ≥10 isolates from ≥2 countries at the 500 SNP threshold should be considered a **candidate novel DCC**.
+
+## Notes on Test Datasets
+
+When running on small test datasets (<20 isolates) RAxML tree building is automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees.
+
+DCC reference sequences (~3–4GB) are downloaded automatically on first run. If your server has no internet access download the references on a local machine and transfer them to `results/dcc_refs/`.
+
 ## References
 
 - **Ruis et al. 2021** — Dissemination of *Mycobacterium abscessus* via global transmission networks. *Nature Microbiology*. [PMC8478660](https://pmc.ncbi.nlm.nih.gov/articles/PMC8478660/)
@@ -159,9 +213,3 @@ Edit `config.yaml` to set:
 
 Casey Moyer — University of Pittsburgh, Phage Genomics and Bioinformatics
 GitHub: [cmoyer-x](https://github.com/cmoyer-x)
-
-## Notes on Test Datasets
-
-When running on small test datasets (<20 isolates) the RAxML tree building steps are automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees. The RAxML rules are commented out in the `all` target by default and can be re-enabled in the Snakefile for larger datasets.
-
-DCC reference sequences (~2-3GB) are downloaded automatically on first run from ENA and NCBI. This requires internet access from the server. If your server has no internet access download the references on a local machine and transfer them to `results/dcc_refs/`.
