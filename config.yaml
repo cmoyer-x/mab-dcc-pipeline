@@ -95,7 +95,7 @@ transmission:
   dcc_threshold: 500
 
 # Optional location data for HTML map
-locations_file: ""
+locations_file: "input/locations.xlsx"
 
 # Computational resources
 resources:
