@@ -206,6 +206,71 @@ Non-DCC isolates are not sequencing failures. They represent:
 
 A cluster of Non-DCC isolates meeting ≥10 isolates from ≥2 countries at the 500 SNP threshold should be considered a **candidate novel DCC**.
 
+## Pipeline Options
+
+### Skip RAxML trees
+
+If you have your own preferred phylogenetic pipeline or want to save time on large datasets, skip the RAxML step entirely:
+
+```bash
+# Skip trees for this run
+snakemake --cores 16 --use-conda --config skip_raxml=true
+
+# Or set permanently in config.yaml
+skip_raxml: true
+```
+
+The pipeline will complete all DCC assignments and transmission pair analysis without running RAxML. The core SNP alignments (`results/core/abscessus/core.aln` and `results/core/massiliense/core.aln`) are always produced and can be used directly with IQ-TREE, FastTree, or any other tree builder.
+
+### Clean up results
+
+Reset the pipeline without re-downloading references:
+
+```bash
+# Remove results but keep downloads (~3GB of DCC refs)
+snakemake clean --cores 1
+
+# Remove everything including downloads
+snakemake clean_all --cores 1
+```
+
+### Dry run summary
+
+Before committing to a full run, preview what the pipeline will do:
+
+```bash
+snakemake --cores 16 --use-conda --dry-run
+```
+
+This prints a summary including isolate count, estimated runtimes, and whether reference downloads are needed:
+
+```
+============================================================
+  M. abscessus DCC Assignment Pipeline
+============================================================
+  Isolates found:     150
+  Total input size:   0.72 GB
+  Output directory:   results/
+  Skip RAxML trees:   NO
+  Locations file:     YES
+
+  Estimated runtimes (approximate):
+    Snippy SNP calling:    ~7.5 hours
+    Gubbins recombination: ~12.0 hours
+    RAxML trees:           ~45.0 hours
+    Total estimated:       ~66 hours on 4 cores
+============================================================
+```
+
+### Progress log
+
+A timestamped progress log is written to `results/pipeline_progress.log` during each run, making it easy to track which steps have completed:
+
+```
+[2025-05-07 14:23:01] Input validation passed: 150 isolates found
+[2025-05-07 14:23:01] Config validation passed
+```
+
 ## Notes on Test Datasets
 
 When running on small test datasets (<20 isolates) RAxML tree building is automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees.
