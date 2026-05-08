@@ -15,7 +15,9 @@
 configfile: "config.yaml"
 
 import os
+import sys
 import glob
+import datetime
 
 def get_samples():
     fastas = (glob.glob(os.path.join(config["input_dir"], "*.fasta")) +
@@ -28,6 +30,117 @@ def get_species_refs():
 
 SAMPLES = get_samples()
 OUT = config["output_dir"]
+
+# ── Skip RAxML flag ───────────────────────────────────────────
+# Set skip_raxml: true in config.yaml or pass --config skip_raxml=true
+SKIP_RAXML = config.get("skip_raxml", False)
+
+# ── Config validation ─────────────────────────────────────────
+def validate_config():
+    """Validate config.yaml settings before pipeline starts."""
+    errors = []
+
+    # Check input directory exists
+    if not os.path.isdir(config["input_dir"]):
+        errors.append(
+            f"input_dir '{config['input_dir']}' does not exist. "
+            "Create it and place your FASTA files inside."
+        )
+
+    # Check species refs directory exists
+    if not os.path.isdir(config["species_refs_dir"]):
+        errors.append(
+            f"species_refs_dir '{config['species_refs_dir']}' does not exist. "
+            "Run: ls references/species/ to check reference files."
+        )
+
+    # Check SNP thresholds make sense
+    t1 = config.get("transmission", {}).get("threshold_strict", 10)
+    t2 = config.get("transmission", {}).get("threshold_broad", 20)
+    if t1 >= t2:
+        errors.append(
+            f"transmission.threshold_strict ({t1}) must be less than "
+            f"transmission.threshold_broad ({t2})."
+        )
+    if t1 < 1 or t2 < 1:
+        errors.append("Transmission thresholds must be >= 1 SNP.")
+
+    dcc_thresh = config.get("transmission", {}).get("dcc_threshold", 500)
+    if dcc_thresh < t2:
+        errors.append(
+            f"transmission.dcc_threshold ({dcc_thresh}) should be greater than "
+            f"threshold_broad ({t2})."
+        )
+
+    # Check resources
+    cores = config.get("resources", {}).get("default_cores", 4)
+    if cores < 1:
+        errors.append("resources.default_cores must be >= 1.")
+
+    if errors:
+        print("\n[mab-dcc-pipeline] CONFIG ERRORS:")
+        for e in errors:
+            print(f"  ERROR: {e}")
+        raise ValueError(f"Config validation failed with {len(errors)} error(s). See above.")
+
+    print("[mab-dcc-pipeline] Config validation passed")
+
+validate_config()
+
+# ── Progress logger ───────────────────────────────────────────
+def log_progress(message):
+    """Write timestamped progress message to log file."""
+    os.makedirs(OUT, exist_ok=True)
+    log_path = os.path.join(OUT, "pipeline_progress.log")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_path, "a") as f:
+        f.write(f"[{timestamp}] {message}\n")
+    print(f"[mab-dcc-pipeline] {message}")
+
+# ── Dry-run summary ───────────────────────────────────────────
+def print_pipeline_summary():
+    """Print a friendly summary of what the pipeline will do."""
+    n = len(SAMPLES)
+    fastas = (glob.glob(os.path.join(config["input_dir"], "*.fasta")) +
+              glob.glob(os.path.join(config["input_dir"], "*.fna")))
+    total_size = sum(os.path.getsize(f) for f in fastas) / 1e9
+
+    # Check what needs downloading
+    abs_ref = config["subspecies_refs"]["abscessus"]["path"]
+    need_subsp = not os.path.exists(abs_ref)
+    need_dcc   = not os.path.exists(os.path.join(OUT, "references", ".dcc_refs_done"))
+
+    # Runtime estimate (rough, based on experience)
+    snippy_hrs  = round(n * 0.05, 1)
+    gubbins_hrs = round(n * 0.08, 1)
+    raxml_hrs   = round(n * 0.3, 1)
+    total_hrs   = snippy_hrs + gubbins_hrs + (raxml_hrs if not SKIP_RAXML else 0) + 2
+
+    print("\n" + "="*60)
+    print("  M. abscessus DCC Assignment Pipeline")
+    print("="*60)
+    print(f"  Isolates found:     {n}")
+    print(f"  Total input size:   {total_size:.2f} GB")
+    print(f"  Output directory:   {OUT}/")
+    print(f"  Skip RAxML trees:   {'YES' if SKIP_RAXML else 'NO'}")
+    print(f"  Locations file:     {'YES' if config.get('locations_file') else 'NO (map disabled)'}")
+    print("")
+    if need_subsp:
+        print("  [DOWNLOAD] Subspecies references (~150MB) — first run only")
+    if need_dcc:
+        print("  [DOWNLOAD] DCC anchor sequences (~3GB) — first run only")
+    print("")
+    print("  Estimated runtimes (approximate):")
+    print(f"    Snippy SNP calling:    ~{snippy_hrs} hours")
+    print(f"    Gubbins recombination: ~{gubbins_hrs} hours")
+    if not SKIP_RAXML:
+        print(f"    RAxML trees:           ~{raxml_hrs} hours")
+    else:
+        print(f"    RAxML trees:           SKIPPED (--config skip_raxml=true)")
+    print(f"    Total estimated:       ~{total_hrs:.0f} hours on {config['resources']['default_cores']} cores")
+    print("="*60 + "\n")
+
+print_pipeline_summary()
 
 # ── Checkpoint helper functions ───────────────────────────────
 def get_clusters(wildcards):
@@ -149,16 +262,54 @@ validate_inputs()
 
 
 # ── Target rule ───────────────────────────────────────────────
-rule all:
-    input:
+def get_final_outputs():
+    """Return list of final outputs — conditionally include RAxML trees."""
+    outputs = [
         expand("{out}/final/DCC_assignments_FINAL.xlsx", out=OUT),
         expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
         expand("{out}/final/DCC_transmission_map.html", out=OUT),
         expand("{out}/final/pipeline_summary.html", out=OUT),
-        # RAxML trees — requires sufficient sequence diversity (100+ isolates recommended)
-        # expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
-        #        out=OUT, subsp=["abscessus", "massiliense"]),
+    ]
+    if not SKIP_RAXML:
+        outputs.append(
+            expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
+                   out=OUT, subsp=["abscessus", "massiliense"])
+        )
+    return outputs
 
+rule all:
+    input:
+        get_final_outputs()
+
+
+
+# ============================================================
+# UTILITY RULES
+# ============================================================
+
+rule clean:
+    """Remove pipeline results but keep downloaded references."""
+    shell:
+        """
+        echo "[mab-dcc-pipeline] Cleaning results directory..."
+        rm -rf results/mash results/snippy results/core results/fastbaps
+        rm -rf results/gubbins results/snp_distances results/dcc
+        rm -rf results/transmission results/trees results/final
+        rm -f results/pipeline_progress.log
+        echo "[mab-dcc-pipeline] Clean complete. Downloads preserved in results/dcc_refs/ and references/subspecies/"
+        """
+
+rule clean_all:
+    """Remove everything including downloaded references."""
+    shell:
+        """
+        echo "[mab-dcc-pipeline] Cleaning all results and downloads..."
+        rm -rf results/
+        rm -f references/subspecies/ATCC19977.fasta
+        rm -f references/subspecies/CIP_108297.fasta
+        rm -f references/subspecies/CCUG_50184.fasta
+        echo "[mab-dcc-pipeline] Full clean complete."
+        """
 
 # ============================================================
 # PHASE 0 — DOWNLOAD DCC REFERENCE SEQUENCES
