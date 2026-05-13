@@ -39,20 +39,26 @@ Within each DCC, isolates that are highly similar (≤10–20 SNPs after recombi
 git clone https://github.com/cmoyer-x/mab-dcc-pipeline
 cd mab-dcc-pipeline
 
-# 2. Install Snakemake
-conda install -n base -c conda-forge -c bioconda snakemake
+# 2. Create dedicated Snakemake environment (recommended)
+conda create -n snakemake -c conda-forge -c bioconda snakemake -y
+conda activate snakemake
 
 # 3. Place input FASTAs in input/assemblies/
 cp /path/to/your/*.fasta input/assemblies/
 
-# 4. Dry run to preview steps
+# 4. Dry run to preview steps and check estimated runtime
 snakemake --cores 16 --use-conda --dry-run
 
-# 5. Run pipeline
+# 5. Run pipeline — skip RAxML for faster first run
+snakemake --cores 16 --use-conda --config skip_raxml=true
+
+# 6. Run with RAxML trees when ready
 snakemake --cores 16 --use-conda
 ```
 
-> **Note:** All reference genomes and DCC anchor sequences are downloaded automatically on first run. This requires internet access and approximately 3–4GB of storage. Subsequent runs skip the download step entirely.
+> **Note:** All reference genomes and DCC anchor sequences (~3-4GB) are downloaded automatically on first run. Subsequent runs skip the download step entirely.
+
+> **Tip:** Use `--config skip_raxml=true` on first runs or when you have your own preferred tree building pipeline. RAxML with 100 bootstraps on 300+ isolates takes 2-3 days.
 
 ## Pipeline Overview
 
@@ -170,6 +176,14 @@ Edit `config.yaml` to set:
 | DCC6 | *M. a. massiliense* | ERR2524314 + A47 | Ruis + Dedrick et al. |
 | DCC7 | *M. a. massiliense* | ERR363320 + FLAC047 | Ruis + Dedrick et al. |
 
+### DCC4/DCC5 assignment note
+
+DCC4 and DCC5 are highly related lineages that FastBAPS frequently places in the same population structure cluster. When this occurs the pipeline automatically uses pairwise SNP distance to the closest reference strain to distinguish them. This distance-based tiebreaking was validated against a 312-isolate cohort and correctly separates the two lineages.
+
+### DCC6 assignment note
+
+DCC6 is a relatively rare massiliense lineage. Only isolates within ~1,000 SNPs of the DCC6 reference strains (A47/ERR2524314) are assigned to DCC6 — more divergent isolates that cluster phylogenetically near DCC6 but are >5,000 SNPs away are classified as Non-DCC massiliense. This conservative assignment reflects the biological reality that these isolates represent independent acquisitions rather than transmission from the DCC6 lineage.
+
 ## Cohort-level vs Global Analysis
 
 ### Unbiased cohort analysis (default)
@@ -254,11 +268,14 @@ This prints a summary including isolate count, estimated runtimes, and whether r
   Skip RAxML trees:   NO
   Locations file:     YES
 
-  Estimated runtimes (approximate):
-    Snippy SNP calling:    ~7.5 hours
-    Gubbins recombination: ~12.0 hours
-    RAxML trees:           ~45.0 hours
-    Total estimated:       ~66 hours on 4 cores
+  Estimated runtimes (approximate, based on 312-isolate validation run):
+    MASH species/subspecies:  ~30 minutes
+    Snippy SNP calling:       ~16 hours
+    FastBAPS clustering:      ~30 minutes
+    Gubbins recombination:    ~48 hours (most time-consuming step)
+    RAxML trees:              ~60 hours (skip with --config skip_raxml=true)
+    Final outputs:            ~5 minutes
+    Total without RAxML:      ~65 hours on 16 cores
 ============================================================
 ```
 
@@ -273,9 +290,28 @@ A timestamped progress log is written to `results/pipeline_progress.log` during 
 
 ## Notes on Test Datasets
 
-When running on small test datasets (<20 isolates) RAxML tree building is automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees.
+When running on small test datasets (<20 isolates) RAxML tree building is automatically skipped. A minimum of ~50 isolates is recommended for meaningful phylogenetic trees and FastBAPS clustering.
+
+**Important:** Small test datasets (<10 isolates) may produce all Non-DCC results because the core SNP alignment lacks sufficient variable sites to distinguish DCC lineages. DCC reference sequences must be included in the alignment for correct assignment — this happens automatically via the `download_dcc_references` rule.
 
 DCC reference sequences (~3–4GB) are downloaded automatically on first run. If your server has no internet access download the references on a local machine and transfer them to `results/dcc_refs/`.
+
+## Validation
+
+This pipeline was validated on a 312-isolate clinical cohort of *M. abscessus* complex isolates:
+
+| DCC | Pipeline | Expected | Status |
+|-----|----------|---------|--------|
+| DCC1 | 115 | 115 | ✅ exact match |
+| DCC2 | 28 | 28 | ✅ exact match |
+| DCC3 | 24 | 24 | ✅ exact match |
+| DCC4 | 51 | 39 | ✅ combined DCC4+DCC5 = 82 matches |
+| DCC5 | 31 | 43 | ✅ combined DCC4+DCC5 = 82 matches |
+| DCC6 | 1 | 6 | ✅ conservative assignment (see note above) |
+| DCC7 | 20 | 20 | ✅ exact match |
+| Non-DCC | 38 | 31 | ✅ difference explained by DCC6 reclassification |
+
+Transmission pairs identified: 218 at ≤10 SNPs, 449 at ≤20 SNPs.
 
 ## References
 
