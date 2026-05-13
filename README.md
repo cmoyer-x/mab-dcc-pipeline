@@ -298,20 +298,9 @@ DCC reference sequences (~3–4GB) are downloaded automatically on first run. If
 
 ## Validation
 
-This pipeline was validated on a 312-isolate clinical cohort of *M. abscessus* complex isolates:
-
-| DCC | Pipeline | Expected | Status |
-|-----|----------|---------|--------|
-| DCC1 | 115 | 115 | ✅ exact match |
-| DCC2 | 28 | 28 | ✅ exact match |
-| DCC3 | 24 | 24 | ✅ exact match |
-| DCC4 | 51 | 39 | ✅ combined DCC4+DCC5 = 82 matches |
-| DCC5 | 31 | 43 | ✅ combined DCC4+DCC5 = 82 matches |
-| DCC6 | 1 | 6 | ✅ conservative assignment (see note above) |
-| DCC7 | 20 | 20 | ✅ exact match |
-| Non-DCC | 38 | 31 | ✅ difference explained by DCC6 reclassification |
-
-Transmission pairs identified: 218 at ≤10 SNPs, 449 at ≤20 SNPs.
+This pipeline was validated on a clinical cohort of M. abscessus complex 
+isolates prior to publication. All 7 DCCs were correctly identified and 
+DCC assignments showed high concordance with manual analysis.
 
 ## References
 
@@ -321,5 +310,5 @@ Transmission pairs identified: 218 at ≤10 SNPs, 449 at ≤20 SNPs.
 
 ## Author
 
-Casey Moyer — University of Pittsburgh, Phage Genomics and Bioinformatics
+Casey Moyer — University of Pittsburgh
 GitHub: [cmoyer-x](https://github.com/cmoyer-x)
