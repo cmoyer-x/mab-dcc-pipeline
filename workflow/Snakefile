@@ -167,8 +167,13 @@ def get_gubbins_alns(wildcards):
         out=wildcards.out, subsp=wildcards.subsp).output.done
     outdir = os.path.dirname(checkpoint_output)
     fastas = glob.glob(os.path.join(outdir, "cluster_*.fasta"))
-    ids = [re.search(r"cluster_(.+)\.fasta", f).group(1) for f in fastas]
-    return expand("{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta",
+    # Only match simple numeric cluster IDs e.g. cluster_1.fasta not cluster_1.filtered...fasta
+    ids = []
+    for f in fastas:
+        m = re.search(r"cluster_(\d+)\.fasta$", f)
+        if m:
+            ids.append(m.group(1))
+    return expand("{out}/gubbins_clean/{subsp}/cluster_{cluster}.gubbins_filtered.fasta",
                   out=wildcards.out, subsp=wildcards.subsp, cluster=ids)
 
 
@@ -263,13 +268,17 @@ validate_inputs()
 
 # ── Target rule ───────────────────────────────────────────────
 def get_final_outputs():
-    """Return list of final outputs — conditionally include RAxML trees."""
+    """Return list of final outputs — conditionally include RAxML trees and HTML map."""
     outputs = [
         expand("{out}/final/DCC_assignments_FINAL.xlsx", out=OUT),
         expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
-        expand("{out}/final/DCC_transmission_map.html", out=OUT),
         expand("{out}/final/pipeline_summary.html", out=OUT),
     ]
+    # HTML map only if locations file provided
+    if config.get("locations_file"):
+        outputs.append(
+            expand("{out}/final/DCC_transmission_map.html", out=OUT)
+        )
     if not SKIP_RAXML:
         outputs.append(
             expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
@@ -444,24 +453,33 @@ rule assign_species:
     script:
         "scripts/assign_species.py"
 
+rule mash_sketch_subspecies_refs:
+    """Sketch all three subspecies references into a single database."""
+    input:
+        abs_ref = config["subspecies_refs"]["abscessus"]["path"],
+        mas_ref = config["subspecies_refs"]["massiliense"]["path"],
+        bol_ref = config["subspecies_refs"]["bolletii"]["path"]
+    output:
+        sketch = "{out}/mash/subspecies_refs.msh"
+    conda: "envs/mash.yaml"
+    shell:
+        """
+        mash sketch -o {wildcards.out}/mash/subspecies_refs \
+            {input.abs_ref} {input.mas_ref} {input.bol_ref}
+        """
+
 rule mash_subspecies_distance:
     input:
         query          = config["input_dir"] + "/{sample}.fasta",
         abscessus_list = "{out}/mash/abscessus_samples.txt",
-        abs_ref        = config["subspecies_refs"]["abscessus"]["path"],
-        mas_ref        = config["subspecies_refs"]["massiliense"]["path"],
-        bol_ref        = config["subspecies_refs"]["bolletii"]["path"]
+        sketch         = "{out}/mash/subspecies_refs.msh"
     output:
         dist = "{out}/mash/subspecies/{sample}.tsv"
     conda: "envs/mash.yaml"
     shell:
         """
         if grep -q {wildcards.sample} {input.abscessus_list}; then
-            mash dist \
-                {config[subspecies_refs][abscessus][path]} \
-                {config[subspecies_refs][massiliense][path]} \
-                {config[subspecies_refs][bolletii][path]} \
-                {input.query} > {output.dist}
+            mash dist {input.sketch} {input.query} > {output.dist}
         else
             touch {output.dist}
         fi
@@ -573,21 +591,54 @@ rule snippy_core_abscessus:
 
 rule snippy_core_massiliense:
     input:
-        vcfs    = expand("{out}/snippy/massiliense/{sample}/snps.vcf",
-                        out=OUT, sample=SAMPLES),
-        ref     = config["subspecies_refs"]["massiliense"]["path"],
-        maslist = "{out}/mash/subspecies/massiliense_samples.txt"
+        vcfs     = expand("{out}/snippy/massiliense/{sample}/snps.vcf",
+                         out=OUT, sample=SAMPLES),
+        ref      = config["subspecies_refs"]["massiliense"]["path"],
+        maslist  = "{out}/mash/subspecies/massiliense_samples.txt",
+        dcc_done = "{out}/references/.dcc_refs_done"
     output:
         aln = "{out}/core/massiliense/core.aln"
+    params:
+        dcc_refs = "{out}/dcc_refs/massiliense"
     conda: "envs/snippy.yaml"
     shell:
         """
+        # Map massiliense DCC reference reads
+        for acc in ERR1045629 ERR2524314 ERR363320; do
+            if [ -f {params.dcc_refs}/${{acc}}_1.fastq.gz ] && \
+               [ ! -d {wildcards.out}/snippy/massiliense/${{acc}} ]; then
+                snippy --ref {input.ref} \
+                       --R1 {params.dcc_refs}/${{acc}}_1.fastq.gz \
+                       --R2 {params.dcc_refs}/${{acc}}_2.fastq.gz \
+                       --outdir {wildcards.out}/snippy/massiliense/${{acc}} \
+                       --cpus 4 --force
+            fi
+        done
+
+        # Map massiliense assembly refs (A47, FLAC047)
+        for name in A47 FLAC047; do
+            if [ -f {params.dcc_refs}/${{name}}.fna ] && \
+               [ ! -d {wildcards.out}/snippy/massiliense/${{name}} ]; then
+                snippy --ref {input.ref} \
+                       --ctgs {params.dcc_refs}/${{name}}.fna \
+                       --outdir {wildcards.out}/snippy/massiliense/${{name}} \
+                       --cpus 4 --force
+            fi
+        done
+
+        # Build core alignment
         dirs=$(while read s; do echo {wildcards.out}/snippy/massiliense/$s; done < {input.maslist} | tr '\n' ' ')
-        if [ -z "$dirs" ]; then
-            echo "No massiliense samples found — creating empty alignment"
+        dcc_dirs=$(ls -d {wildcards.out}/snippy/massiliense/{{ERR1045629,ERR2524314,ERR363320,A47,FLAC047}} 2>/dev/null | tr '\n' ' ')
+
+        if [ -z "$dirs" ] && [ -z "$dcc_dirs" ]; then
+            echo "No massiliense samples — creating empty alignment"
             touch {output.aln}
         else
-            snippy-core --ref {input.ref} --prefix {wildcards.out}/core/massiliense/core $dirs
+            snippy-core --ref {input.ref} \
+                --prefix {wildcards.out}/core/massiliense/core $dirs $dcc_dirs || true
+            if [ ! -s {output.aln} ]; then
+                cp {wildcards.out}/core/massiliense/core.full.aln {output.aln}
+            fi
         fi
         """
 
@@ -643,10 +694,11 @@ checkpoint split_clusters:
         aln      = "{out}/core/{subsp}/core.aln",
         clusters = "{out}/fastbaps/{subsp}/clusters.csv"
     output:
-        done = "{out}/gubbins/{subsp}/.split_done"
+        done = "{out}/gubbins_clean/{subsp}/.split_done"
     params:
-        outdir   = "{out}/gubbins/{subsp}",
+        outdir   = "{out}/gubbins_clean/{subsp}",
         min_seqs = config["gubbins"]["min_taxa"]
+    conda: "envs/analyze.yaml"
     script:
         "scripts/split_by_cluster.py"
 
@@ -691,6 +743,10 @@ rule gubbins:
                 --tree-builder fasttree \
                 --first-tree-builder fasttree \
                 cluster_{wildcards.cluster}.fasta
+            cp cluster_{wildcards.cluster}.filtered_polymorphic_sites.fasta \
+               cluster_{wildcards.cluster}.gubbins_filtered.fasta
+            cp cluster_{wildcards.cluster}.node_labelled.final_tree.tre \
+               cluster_{wildcards.cluster}.gubbins_tree.tre
         fi
         """
 
@@ -716,8 +772,12 @@ rule merge_cluster_distances:
         get_gubbins_alns
     output:
         done = "{out}/snp_distances/{subsp}/.merge_done"
-    shell:
-        "touch {output.done}"
+    run:
+        import glob
+        outdir = os.path.dirname(output.done)
+        os.makedirs(outdir, exist_ok=True)
+        with open(output.done, "w") as f:
+            f.write("merge done\n")
 
 # ============================================================
 # PHASE 5 — SNP DISTANCES

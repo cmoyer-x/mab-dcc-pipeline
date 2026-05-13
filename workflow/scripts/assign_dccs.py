@@ -1,12 +1,13 @@
 """
 assign_dccs.py — Snakemake script
 Assign isolates to DCCs using FastBAPS clusters + SNP distances.
+Uses distance-based tiebreaking when multiple DCCs share a cluster.
 """
 import pandas as pd
 import csv
 import math
 import os
-from collections import Counter
+from collections import Counter, defaultdict
 
 abs_dists    = snakemake.input.abs_dists
 mas_dists    = snakemake.input.mas_dists
@@ -40,68 +41,92 @@ def get_dist(df, ref, iso):
         return None
 
 def assign(dist_file, cluster_file, subspecies, dcc_list):
-    # Handle empty files
     if not os.path.exists(dist_file) or os.path.getsize(dist_file) == 0:
-        print(f"Empty distance file for {subspecies} — skipping")
         return []
-
     try:
         df = pd.read_csv(dist_file, sep='\t', index_col=0)
     except Exception as e:
         print(f"Could not parse {dist_file}: {e}")
         return []
 
-    # Check if file has actual sequence data
     gd = [c for c in df.columns if c not in ALL_REFS]
     if not gd:
-        print(f"No GD isolates found in {dist_file} — skipping")
         return []
 
-    clusters = {}
+    # Load clusters
+    clusters_l1 = {}
+    clusters_l2 = {}
     if os.path.exists(cluster_file) and os.path.getsize(cluster_file) > 0:
         with open(cluster_file) as f:
-            for row in csv.reader(f):
-                if len(row) >= 2:
-                    clusters[row[0]] = row[1]
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                if len(row) >= 3:
+                    clusters_l1[row[0]] = row[1]
+                    clusters_l2[row[0]] = row[2]
+                elif len(row) >= 2:
+                    clusters_l1[row[0]] = row[1]
 
-    ref_clusters = {}
+    # Build cluster -> DCC map
+    # Track which clusters have MULTIPLE DCCs (ambiguous)
+    l1_dccs = defaultdict(set)
     for ref, dcc in RUIS_REFS.items():
-        if ref in clusters:
-            ref_clusters[ref] = (clusters[ref], dcc)
+        if dcc not in dcc_list: continue
+        if ref in clusters_l1:
+            l1_dccs[clusters_l1[ref]].add(dcc)
 
-    level1_dcc = {}
-    for ref, (l1, dcc) in ref_clusters.items():
-        if dcc in dcc_list and l1 not in level1_dcc:
-            level1_dcc[l1] = dcc
+    # Single DCC per cluster = unambiguous
+    l1_dcc_unique = {l1: list(dccs)[0] for l1, dccs in l1_dccs.items() if len(dccs)==1}
+    # Multiple DCCs per cluster = ambiguous, use distance
+    l1_dcc_ambig = {l1: dccs for l1, dccs in l1_dccs.items() if len(dccs)>1}
+
+    print(f"\n{subspecies}:")
+    print(f"  Unambiguous clusters: {l1_dcc_unique}")
+    print(f"  Ambiguous clusters (will use distance): {dict(l1_dcc_ambig)}")
 
     results = []
     for iso in gd:
-        l1 = clusters.get(iso, 'unknown')
-        dcc_by_cluster = level1_dcc.get(l1)
+        l1 = clusters_l1.get(iso, 'unknown')
+        l2 = clusters_l2.get(iso, 'unknown')
 
-        dists = {}
-        for ref, dcc in RUIS_REFS.items():
-            if dcc not in dcc_list:
-                continue
-            d = get_dist(df, ref, iso)
-            if d is not None:
-                if dcc not in dists or d < dists[dcc]:
-                    dists[dcc] = d
-
-        if dcc_by_cluster:
-            dcc_assign = dcc_by_cluster
-        elif dists:
-            closest = min(dists, key=dists.get)
-            dcc_assign = closest if dists[closest] <= threshold else 'Non-DCC'
+        if l1 in l1_dcc_unique:
+            # Unambiguous cluster assignment
+            dcc_assign = l1_dcc_unique[l1]
+        elif l1 in l1_dcc_ambig:
+            # Ambiguous cluster — use distance to closest ref
+            candidate_dccs = l1_dcc_ambig[l1]
+            dists = {}
+            for ref, dcc in RUIS_REFS.items():
+                if dcc not in candidate_dccs: continue
+                d = get_dist(df, ref, iso)
+                if d is not None:
+                    if dcc not in dists or d < dists[dcc]:
+                        dists[dcc] = d
+            if dists:
+                dcc_assign = min(dists, key=dists.get)
+            else:
+                dcc_assign = 'Non-DCC'
         else:
-            dcc_assign = 'Non-DCC'
+            # Not in any DCC cluster — distance fallback
+            dists = {}
+            for ref, dcc in RUIS_REFS.items():
+                if dcc not in dcc_list: continue
+                d = get_dist(df, ref, iso)
+                if d is not None:
+                    if dcc not in dists or d < dists[dcc]:
+                        dists[dcc] = d
+            if dists:
+                closest = min(dists, key=dists.get)
+                dcc_assign = closest if dists[closest] <= threshold else 'Non-DCC'
+            else:
+                dcc_assign = 'Non-DCC'
 
         results.append({
             'Isolate': iso,
             'Subspecies': subspecies,
             'DCC': dcc_assign,
             'FastBAPS_Level1': l1,
-            'Distance_to_DCC': dists.get(dcc_assign, ''),
+            'FastBAPS_Level2': l2,
         })
     return results
 
@@ -112,28 +137,23 @@ abs_results = assign(abs_dists, abs_clusters, 'M. a. abscessus',
 mas_results = assign(mas_dists, mas_clusters, 'M. a. massiliense',
                      ['DCC3','DCC6','DCC7'])
 
-# Write outputs even if empty
-fieldnames = ['Isolate','Subspecies','DCC','FastBAPS_Level1','Distance_to_DCC']
-
+fieldnames = ['Isolate','Subspecies','DCC','FastBAPS_Level1','FastBAPS_Level2']
 with open(out_abs, 'w', newline='') as f:
     w = csv.DictWriter(f, fieldnames=fieldnames)
-    w.writeheader()
-    w.writerows(abs_results)
+    w.writeheader(); w.writerows(abs_results)
 
 with open(out_mas, 'w', newline='') as f:
     w = csv.DictWriter(f, fieldnames=fieldnames)
-    w.writeheader()
-    w.writerows(mas_results)
+    w.writeheader(); w.writerows(mas_results)
 
 all_results = abs_results + mas_results
 counts = Counter(r['DCC'] for r in all_results)
-
 with open(out_summary, 'w', newline='') as f:
     w = csv.writer(f, delimiter='\t')
     w.writerow(['DCC','Count'])
     for dcc, n in sorted(counts.items()):
         w.writerow([dcc, n])
 
-print(f"DCC assignments complete: {len(all_results)} isolates")
+print(f"\nDCC assignments: {len(all_results)} isolates")
 for dcc, n in sorted(counts.items()):
     print(f"  {dcc}: {n}")
