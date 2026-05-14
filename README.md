@@ -252,20 +252,6 @@ Australia, New Zealand, UK, USA, Canada, France, Netherlands, Germany, Italy, Sp
 
 ## Pipeline Options
 
-### Skip RAxML trees
-
-If you have your own preferred phylogenetic pipeline or want to save time on large datasets, skip the RAxML step entirely:
-
-```bash
-# Skip trees for this run
-snakemake --cores 16 --use-conda --config skip_raxml=true
-
-# Or set permanently in config.yaml
-skip_raxml: true
-```
-
-The pipeline will complete all DCC assignments and transmission pair analysis without running RAxML. The core SNP alignments (`results/core/abscessus/core.aln` and `results/core/massiliense/core.aln`) are always produced and can be used directly with IQ-TREE, FastTree, or any other tree builder.
-
 ### Clean up results
 
 Reset the pipeline without re-downloading references:
@@ -295,7 +281,6 @@ This prints a summary including isolate count, estimated runtimes, and whether r
   Isolates found:     150
   Total input size:   0.72 GB
   Output directory:   results/
-  Skip RAxML trees:   NO
   Locations file:     YES
 
   Estimated runtimes (approximate, based on 312-isolate validation run):
@@ -303,9 +288,8 @@ This prints a summary including isolate count, estimated runtimes, and whether r
     Snippy SNP calling:       ~16 hours
     FastBAPS clustering:      ~30 minutes
     Gubbins recombination:    ~48 hours (most time-consuming step)
-    RAxML trees:              ~60 hours (skip with --config skip_raxml=true)
     Final outputs:            ~5 minutes
-    Total without RAxML:      ~65 hours on 16 cores
+    Total:                    ~65 hours on 16 cores
 ============================================================
 ```
 
