@@ -230,14 +230,12 @@ The locations file is optional but required for the interactive HTML transmissio
 |----------|----------|
 | Isolate ID | Institution or location |
 
-**Example:**
+**Example format** (use generic placeholder names in your own file):
 
 | Isolate | Institution |
 |---------|------------|
-| GD01 | Westmead Hospital, Sydney, Australia |
-| GD02_hybrid | Great Ormond Street Hospital, London, UK |
-| GD05 | Toronto General Hospital, Canada |
-| GD09_WGS | Massachusetts General Hospital, USA |
+| Sample001 | Hospital A, City, Country |
+| Sample002 | Hospital B, City, Country |
 
 **Rules:**
 - Column 1 must contain the isolate ID exactly as it appears in your FASTA filenames (without the `.fasta` extension)
