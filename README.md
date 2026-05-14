@@ -131,12 +131,18 @@ All outputs written to `results/final/`:
 
 | File | Description |
 |------|-------------|
-| `DCC_assignments_FINAL.xlsx` | Per-isolate DCC assignments with transmission partners |
-| `transmission_pairs_FINAL.xlsx` | Pairs ≤10 SNPs and ≤20 SNPs |
-| `DCC_transmission_map.html` | Interactive global map |
-| `pipeline_summary.html` | Run summary report |
-| `trees/abscessus/RAxML_bipartitions.*` | Abscessus tree — upload to iTOL |
-| `trees/massiliense/RAxML_bipartitions.*` | Massiliense tree — upload to iTOL |
+| `DCC_assignments_FINAL.xlsx` | Per-isolate DCC assignments including subspecies, FastBAPS cluster, and DCC label |
+| `transmission_pairs_FINAL.xlsx` | Putative transmission pairs at ≤10 SNPs and ≤20 SNPs after recombination removal |
+| `pipeline_summary.html` | Interactive run summary — isolate counts, DCC distribution, species report |
+
+Core SNP alignments are also produced and can be used for downstream analysis:
+
+| File | Description |
+|------|-------------|
+| `results/core/abscessus/core.aln` | *M. a. abscessus* core SNP alignment including DCC reference strains |
+| `results/core/massiliense/core.aln` | *M. a. massiliense* core SNP alignment including DCC reference strains |
+
+> **Note:** Phylogenetic tree building is not included in the pipeline. The core alignments above can be used directly with RAxML, IQ-TREE, FastTree, or any other tree builder. See [Phylogenetic Trees](#phylogenetic-trees) below for the recommended RAxML method matching Ruis et al. 2021.
 
 ## Requirements
 
