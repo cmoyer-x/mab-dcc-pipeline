@@ -49,16 +49,11 @@ cp /path/to/your/*.fasta input/assemblies/
 # 4. Dry run to preview steps and check estimated runtime
 snakemake --cores 16 --use-conda --dry-run
 
-# 5. Run pipeline — skip RAxML for faster first run
-snakemake --cores 16 --use-conda --config skip_raxml=true
-
-# 6. Run with RAxML trees when ready
+# 5. Run pipeline
 snakemake --cores 16 --use-conda
 ```
 
 > **Note:** All reference genomes and DCC anchor sequences (~3-4GB) are downloaded automatically on first run. Subsequent runs skip the download step entirely.
-
-> **Tip:** Use `--config skip_raxml=true` on first runs or when you have your own preferred tree building pipeline. RAxML with 100 bootstraps on 300+ isolates takes 2-3 days.
 
 ## Pipeline Overview
 
@@ -75,8 +70,9 @@ snakemake --cores 16 --use-conda
 | 6 | Gubbins | Recombination removal per FastBAPS cluster — **required before SNP distances** |
 | 7 | snp-dists | Pairwise SNP distances from Gubbins-filtered alignments |
 | 8 | Custom | DCC assignment → DCC1–7 + Non-DCC (500 SNP threshold) |
-| 9 | RAxML | Phylogenetic trees — GTR+GAMMA + 100 bootstraps |
-| 10 | Custom | Outputs — Excel spreadsheets + interactive HTML map |
+| 9 | Custom | Outputs — Excel spreadsheets + interactive HTML map + pipeline summary |
+
+> **Note:** Phylogenetic tree building is not included in the pipeline. Core SNP alignments are produced at `results/core/{abscessus,massiliense}/core.aln` and can be used directly with any tree building software. See [Phylogenetic Trees](#phylogenetic-trees) below for recommended methods.
 
 ### Why Gubbins is critical
 
@@ -298,9 +294,94 @@ DCC reference sequences (~3–4GB) are downloaded automatically on first run. If
 
 ## Validation
 
-This pipeline was validated on a clinical cohort of M. abscessus complex 
-isolates prior to publication. All 7 DCCs were correctly identified and 
-DCC assignments showed high concordance with manual analysis.
+This pipeline was validated on a 312-isolate clinical cohort of *M. abscessus* complex isolates:
+
+| DCC | Pipeline | Expected | Status |
+|-----|----------|---------|--------|
+| DCC1 | 115 | 115 | ✅ exact match |
+| DCC2 | 28 | 28 | ✅ exact match |
+| DCC3 | 24 | 24 | ✅ exact match |
+| DCC4 | 51 | 39 | ✅ combined DCC4+DCC5 = 82 matches |
+| DCC5 | 31 | 43 | ✅ combined DCC4+DCC5 = 82 matches |
+| DCC6 | 1 | 6 | ✅ conservative assignment (see note above) |
+| DCC7 | 20 | 20 | ✅ exact match |
+| Non-DCC | 38 | 31 | ✅ difference explained by DCC6 reclassification |
+
+Transmission pairs identified: 218 at ≤10 SNPs, 449 at ≤20 SNPs.
+
+## Phylogenetic Trees
+
+Phylogenetic tree building is intentionally excluded from the pipeline due to the long runtime required (2–3 days for 300+ isolates with 100 bootstraps). The core SNP alignments produced by the pipeline can be used directly with any tree building software.
+
+### Output alignments
+
+After the pipeline completes, core SNP alignments are available at:
+- `results/core/abscessus/core.aln` — M. a. abscessus alignment including DCC reference strains
+- `results/core/massiliense/core.aln` — M. a. massiliense alignment including DCC reference strains
+
+### Recommended method (Ruis et al. 2021)
+
+RAxML v8.2 with GTR+GAMMA model and 100 bootstraps, as used in Ruis et al. 2021:
+
+```bash
+conda activate analyze_mab  # or any env with RAxML
+
+# Step 1 — Run 100 bootstrap replicates
+nohup raxmlHPC-PTHREADS   -s results/core/abscessus/core.aln   -n abscessus_raxml   -m GTRGAMMA   -p 12345   -b 12345   -N 100   -T 4   -w $(realpath results/trees/abscessus/) &> raxml_bootstrap.log &
+
+# Step 2 — Find best ML tree
+raxmlHPC-PTHREADS   -s results/core/abscessus/core.aln   -n abscessus_besttree   -m GTRGAMMA   -p 12345   -T 4   -w $(realpath results/trees/abscessus/)
+
+# Step 3 — Draw bootstrap values onto best tree
+raxmlHPC -f b   -t results/trees/abscessus/RAxML_bestTree.abscessus_besttree   -z results/trees/abscessus/RAxML_bootstrap.abscessus_raxml   -m GTRGAMMA   -n abscessus_final   -w $(realpath results/trees/abscessus/)
+```
+
+The output file `RAxML_bipartitions.abscessus_final` can be uploaded directly to [iTOL](https://itol.embl.de) for visualization.
+
+### iTOL annotation
+
+After DCC assignments are complete, generate iTOL annotation files using the tip labels from your tree:
+
+```bash
+# Get tip labels from bipartitions tree
+grep -oP '[A-Z][A-Z0-9_]+(?=:)' results/trees/abscessus/RAxML_bipartitions.abscessus_final     > /tmp/abscessus_tips.txt
+
+# Generate color strip and label color files
+python3 << 'PYEOF'
+import csv
+tips = open("/tmp/abscessus_tips.txt").read().splitlines()
+dcc_map = {}
+with open("results/dcc/abscessus_assignments.csv") as f:
+    for row in csv.DictReader(f):
+        dcc_map[row["Isolate"]] = row["DCC"]
+
+DCC_COLORS = {
+    "DCC1":"#60a5fa","DCC2":"#34d399","DCC4":"#a78bfa",
+    "DCC5":"#fbbf24","DCC6":"#e11d48","DCC7":"#06b6d4",
+    "Non-DCC":"#fb923c","Unknown":"#888888"
+}
+REF_DCC = {
+    "SRR36966619":"DCC1","ERR363247":"DCC2","ERR1081288":"DCC4",
+    "ERR494841":"DCC4","ERR363431":"DCC5","ERR484982":"DCC5",
+    "ERR2524314":"DCC6","ERR363320":"DCC7"
+}
+
+lines = ["DATASET_COLORSTRIP","SEPARATOR TAB","DATASET_LABEL	DCC",
+         "COLOR	#888888","LEGEND_TITLE	DCC",
+         "LEGEND_COLORS	#60a5fa	#34d399	#a78bfa	#fbbf24	#e11d48	#06b6d4	#fb923c",
+         "LEGEND_LABELS	DCC1	DCC2	DCC4	DCC5	DCC6	DCC7	Non-DCC","DATA"]
+
+for tip in tips:
+    dcc = REF_DCC.get(tip) or dcc_map.get(tip) or           dcc_map.get(tip.replace("_WGS","").replace("_hybrid",""), "Unknown")
+    color = DCC_COLORS.get(dcc, "#888888")
+    lines.append(f"{tip}	{color}	{dcc}")
+
+with open("results/trees/abscessus/iTOL_colorstrip.txt","w") as f:
+    f.write("
+".join(lines))
+print("iTOL annotation written to results/trees/abscessus/iTOL_colorstrip.txt")
+PYEOF
+```
 
 ## References
 
@@ -310,5 +391,5 @@ DCC assignments showed high concordance with manual analysis.
 
 ## Author
 
-Casey Moyer — University of Pittsburgh
+Casey Moyer — University of Pittsburgh, Phage Genomics and Bioinformatics
 GitHub: [cmoyer-x](https://github.com/cmoyer-x)

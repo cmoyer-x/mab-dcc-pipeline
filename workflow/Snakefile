@@ -31,10 +31,6 @@ def get_species_refs():
 SAMPLES = get_samples()
 OUT = config["output_dir"]
 
-# ── Skip RAxML flag ───────────────────────────────────────────
-# Set skip_raxml: true in config.yaml or pass --config skip_raxml=true
-SKIP_RAXML = config.get("skip_raxml", False)
-
 # ── Config validation ─────────────────────────────────────────
 def validate_config():
     """Validate config.yaml settings before pipeline starts."""
@@ -114,7 +110,7 @@ def print_pipeline_summary():
     snippy_hrs  = round(n * 0.05, 1)
     gubbins_hrs = round(n * 0.08, 1)
     raxml_hrs   = round(n * 0.3, 1)
-    total_hrs   = snippy_hrs + gubbins_hrs + (raxml_hrs if not SKIP_RAXML else 0) + 2
+    total_hrs   = snippy_hrs + gubbins_hrs + 2
 
     print("\n" + "="*60)
     print("  M. abscessus DCC Assignment Pipeline")
@@ -133,11 +129,9 @@ def print_pipeline_summary():
     print("  Estimated runtimes (approximate):")
     print(f"    Snippy SNP calling:    ~{snippy_hrs} hours")
     print(f"    Gubbins recombination: ~{gubbins_hrs} hours")
-    if not SKIP_RAXML:
-        print(f"    RAxML trees:           ~{raxml_hrs} hours")
-    else:
-        print(f"    RAxML trees:           SKIPPED (--config skip_raxml=true)")
     print(f"    Total estimated:       ~{total_hrs:.0f} hours on {config['resources']['default_cores']} cores")
+    print(f"  Note: RAxML tree building is not included in this pipeline.")
+    print(f"        See README for tree building instructions.")
     print("="*60 + "\n")
 
 print_pipeline_summary()
@@ -268,7 +262,7 @@ validate_inputs()
 
 # ── Target rule ───────────────────────────────────────────────
 def get_final_outputs():
-    """Return list of final outputs — conditionally include RAxML trees and HTML map."""
+    """Return list of final outputs."""
     outputs = [
         expand("{out}/final/DCC_assignments_FINAL.xlsx", out=OUT),
         expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
@@ -278,11 +272,6 @@ def get_final_outputs():
     if config.get("locations_file"):
         outputs.append(
             expand("{out}/final/DCC_transmission_map.html", out=OUT)
-        )
-    if not SKIP_RAXML:
-        outputs.append(
-            expand("{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final",
-                   out=OUT, subsp=["abscessus", "massiliense"])
         )
     return outputs
 
@@ -839,98 +828,6 @@ rule find_transmission_pairs:
         mas_clust_dir = "{out}/snp_distances/massiliense"
     script:
         "scripts/find_transmission_pairs.py"
-
-# ============================================================
-# PHASE 8 — PHYLOGENETIC TREES (RAXML)
-# ============================================================
-
-rule raxml_bootstrap:
-    input:
-        aln = "{out}/core/{subsp}/core.aln"
-    output:
-        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
-    params:
-        model   = config["raxml"]["model"],
-        seed    = config["raxml"]["seed"],
-        bseed   = config["raxml"]["bootstrap_seed"],
-        n_boot  = config["raxml"]["bootstraps"],
-        workdir = "{out}/trees/{subsp}"
-    threads: config["raxml"]["threads"]
-    conda: "envs/raxml.yaml"
-    shell:
-        """
-        mkdir -p {params.workdir}
-        if [ -s {input.aln} ]; then
-            raxmlHPC-PTHREADS \
-                -s {input.aln} \
-                -n {wildcards.subsp}_raxml \
-                -m {params.model} \
-                -p {params.seed} \
-                -b {params.bseed} \
-                -N {params.n_boot} \
-                -T {threads} \
-                -w $(realpath {params.workdir})
-        else
-            echo "No sequences — skipping RAxML"
-            touch {output.bootstrap}
-        fi
-        """
-
-rule raxml_best_tree:
-    input:
-        aln       = "{out}/core/{subsp}/core.aln",
-        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
-    output:
-        best = "{out}/trees/{subsp}/RAxML_bestTree.{subsp}_best"
-    params:
-        model   = config["raxml"]["model"],
-        seed    = config["raxml"]["seed"],
-        workdir = "{out}/trees/{subsp}"
-    threads: config["raxml"]["threads"]
-    conda: "envs/raxml.yaml"
-    shell:
-        """
-        mkdir -p {params.workdir}
-        if [ -s {input.aln} ]; then
-            raxmlHPC-PTHREADS \
-                -s {input.aln} \
-                -n {wildcards.subsp}_best \
-                -m {params.model} \
-                -p {params.seed} \
-                -T {threads} \
-                -w $(realpath {params.workdir})
-        else
-            echo "No sequences — skipping RAxML best tree"
-            touch {output.best}
-        fi
-        """
-
-rule raxml_bipartitions:
-    input:
-        best      = "{out}/trees/{subsp}/RAxML_bestTree.{subsp}_best",
-        bootstrap = "{out}/trees/{subsp}/RAxML_bootstrap.{subsp}_raxml"
-    output:
-        bipartitions = "{out}/trees/{subsp}/RAxML_bipartitions.{subsp}_final"
-    params:
-        model   = config["raxml"]["model"],
-        workdir = "{out}/trees/{subsp}"
-    conda: "envs/raxml.yaml"
-    shell:
-        """
-        mkdir -p {params.workdir}
-        if [ -s {input.best} ] && [ -s {input.bootstrap} ]; then
-            raxmlHPC \
-                -f b \
-                -t {input.best} \
-                -z {input.bootstrap} \
-                -m {params.model} \
-                -n {wildcards.subsp}_final \
-                -w $(realpath {params.workdir})
-        else
-            echo "No sequences — skipping RAxML bipartitions"
-            touch {output.bipartitions}
-        fi
-        """
 
 # ============================================================
 # PHASE 9 — OUTPUTS
