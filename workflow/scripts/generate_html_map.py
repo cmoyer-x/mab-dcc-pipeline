@@ -31,10 +31,17 @@ if loc_file and os.path.exists(loc_file):
         wb = openpyxl.load_workbook(loc_file)
         ws = wb.active
         for row in ws.iter_rows(values_only=True):
-            if row[0] and row[1]:
-                gd = re.match(r'(GD\d+)', str(row[0]))
-                if gd:
-                    locations[gd.group(1)] = str(row[1]).strip()
+            if not row[0]: continue
+            # Handle both 2-column (ID, Location) and 3-column (ID, Disease, Location)
+            if len(row) >= 3 and row[2]:
+                loc_val = str(row[2]).strip().replace("\xa0", "").strip()
+            elif len(row) >= 2 and row[1]:
+                loc_val = str(row[1]).strip().replace("\xa0", "").strip()
+            else:
+                continue
+            gd = re.match(r'(GD\d+)', str(row[0]))
+            if gd and loc_val and loc_val.lower() not in ("location", "institution"):
+                locations[gd.group(1)] = loc_val
         print(f"Loaded {len(locations)} locations")
     except Exception as e:
         print(f"Warning: could not load locations: {e}")
@@ -109,6 +116,8 @@ def get_country(loc):
         return 'Turkey'
     if any(x in loc_lower for x in ['latvia']):
         return 'Latvia'
+    if any(x in loc_lower for x in ['united states','usa','u.s.','u.s.a']):
+        return 'USA'
     if loc:
         return 'USA'
     return 'Unknown'

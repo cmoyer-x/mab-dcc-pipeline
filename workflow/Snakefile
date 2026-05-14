@@ -266,6 +266,7 @@ def get_final_outputs():
         expand("{out}/final/DCC_assignments_FINAL.xlsx", out=OUT),
         expand("{out}/final/transmission_pairs_FINAL.xlsx", out=OUT),
         expand("{out}/final/pipeline_summary.html", out=OUT),
+        expand("{out}/final/DCC_country_visualization.html", out=OUT),
     ]
     # HTML map only if locations file provided
     if config.get("locations_file"):
@@ -853,6 +854,17 @@ rule generate_html_map:
         html = "{out}/final/DCC_transmission_map.html"
     script:
         "scripts/generate_html_map.py"
+
+
+rule generate_country_viz:
+    input:
+        abs_csv   = "{out}/dcc/abscessus_assignments.csv",
+        mas_csv   = "{out}/dcc/massiliense_assignments.csv",
+        locations = [] if not config.get("locations_file") else [config["locations_file"]]
+    output:
+        html = "{out}/final/DCC_country_visualization.html"
+    script:
+        "scripts/generate_country_viz.py"
 
 rule generate_summary_report:
     input:
