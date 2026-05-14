@@ -109,7 +109,6 @@ def print_pipeline_summary():
     # Runtime estimate (rough, based on experience)
     snippy_hrs  = round(n * 0.05, 1)
     gubbins_hrs = round(n * 0.08, 1)
-    raxml_hrs   = round(n * 0.3, 1)
     total_hrs   = snippy_hrs + gubbins_hrs + 2
 
     print("\n" + "="*60)
@@ -118,7 +117,7 @@ def print_pipeline_summary():
     print(f"  Isolates found:     {n}")
     print(f"  Total input size:   {total_size:.2f} GB")
     print(f"  Output directory:   {OUT}/")
-    print(f"  Skip RAxML trees:   {'YES' if SKIP_RAXML else 'NO'}")
+
     print(f"  Locations file:     {'YES' if config.get('locations_file') else 'NO (map disabled)'}")
     print("")
     if need_subsp:
