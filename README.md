@@ -216,6 +216,36 @@ Non-DCC isolates are not sequencing failures. They represent:
 
 A cluster of Non-DCC isolates meeting ≥10 isolates from ≥2 countries at the 500 SNP threshold should be considered a **candidate novel DCC**.
 
+## Location File Format
+
+The locations file is optional but required for the interactive HTML transmission map. It should be an Excel file (`.xlsx`) with the following format:
+
+| Column 1 | Column 2 |
+|----------|----------|
+| Isolate ID | Institution or location |
+
+**Example:**
+
+| Isolate | Institution |
+|---------|------------|
+| GD01 | Westmead Hospital, Sydney, Australia |
+| GD02_hybrid | Great Ormond Street Hospital, London, UK |
+| GD05 | Toronto General Hospital, Canada |
+| GD09_WGS | Massachusetts General Hospital, USA |
+
+**Rules:**
+- Column 1 must contain the isolate ID exactly as it appears in your FASTA filenames (without the `.fasta` extension)
+- Column 2 should contain the institution name or city/country
+- The pipeline extracts country from the institution name automatically — include recognizable country keywords (e.g. Australia, UK, Canada, USA, France)
+- No header row required but one is accepted
+- Isolates without a matching location entry are excluded from the map but still included in all other outputs
+- Place the file at `input/locations.xlsx` and set `locations_file: "input/locations.xlsx"` in `config.yaml`
+
+**Supported countries for map plotting:**
+Australia, New Zealand, UK, USA, Canada, France, Netherlands, Germany, Italy, Spain, Israel, Ireland, Finland, Switzerland, Singapore, Taiwan, Turkey, Latvia, Portugal, Slovakia
+
+> If your institution is in a country not listed above it will default to USA. Add additional country detection logic to `workflow/scripts/generate_html_map.py` if needed.
+
 ## Pipeline Options
 
 ### Skip RAxML trees
