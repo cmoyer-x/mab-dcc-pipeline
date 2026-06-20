@@ -312,7 +312,7 @@ DCC reference sequences (~3–4GB) are downloaded automatically on first run. If
 
 ## Validation
 
-This pipeline was validated on a 312-isolate clinical cohort of *M. abscessus* complex isolates:
+This pipeline has been validated against an independent clinical cohort with manually curated DCC assignments, with pipeline calls matching the expected lineage assignments. Detailed validation metrics will be reported in a forthcoming publication.
 
 | DCC | Pipeline | Expected | Status |
 |-----|----------|---------|--------|
