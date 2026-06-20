@@ -12,23 +12,24 @@ Genomic epidemiology studies have revealed that *M. abscessus* infections are no
 
 DCCs were formally defined by [Ruis et al. 2021](https://pmc.ncbi.nlm.nih.gov/articles/PMC8478660/) as genomic clusters containing isolates from **at least 20 patients across multiple continents**, identified through whole genome sequencing of over 2,000 clinical isolates. Seven DCCs (DCC1–7) were identified:
 
-| DCC | Subspecies | Geographic spread | Key features |
-|-----|-----------|------------------|--------------|
-| DCC1 | *M. a. abscessus* | Global — 4 continents | Largest and most widespread |
-| DCC2 | *M. a. abscessus* | 3 continents | — |
-| DCC3 | *M. a. massiliense* | 3 continents | Massiliense lineage |
-| DCC4 | *M. a. abscessus* | 3 continents | — |
-| DCC5 | *M. a. abscessus* | 4 continents | Highly dispersed |
-| DCC6 | *M. a. massiliense* | Multi-continental | Massiliense lineage |
-| DCC7 | *M. a. massiliense* | Multi-continental | Massiliense lineage |
+| DCC  | Subspecies          | Geographic spread     | Key features                |
+| ---- | ------------------- | --------------------- | --------------------------- |
+| DCC1 | *M. a. abscessus*   | Global — 4 continents | Largest and most widespread |
+| DCC2 | *M. a. abscessus*   | 3 continents          | —                           |
+| DCC3 | *M. a. massiliense* | 3 continents          | Massiliense lineage         |
+| DCC4 | *M. a. abscessus*   | 3 continents          | —                           |
+| DCC5 | *M. a. abscessus*   | 4 continents          | Highly dispersed            |
+| DCC6 | *M. a. massiliense* | Multi-continental     | Massiliense lineage         |
+| DCC7 | *M. a. massiliense* | Multi-continental     | Massiliense lineage         |
 
-> **Important:** DCC6 and DCC7 are *M. a. massiliense* lineages — not abscessus as sometimes assumed. This was confirmed by SNP distance analysis against subspecies reference genomes in the development of this pipeline.
+> **Important:** DCC6 and DCC7 are *M. a. massiliense* lineages — not abscessus as sometimes assumed.
 
 Understanding which DCC a patient's isolate belongs to has important clinical implications — it can inform infection control decisions, identify likely transmission routes, and distinguish patient-to-patient transmission from independent environmental acquisition.
 
 ### Transmission pairs
 
 Within each DCC, isolates that are highly similar (≤10–20 SNPs after recombination removal) are considered **putative transmission pairs** — patients who likely shared the same strain through direct or indirect contact. This pipeline identifies these pairs at two thresholds:
+
 - **≤10 SNPs** — likely direct transmission (Ruis et al. 2021)
 - **≤20 SNPs** — probable transmission cluster (Bronson et al. 2021)
 
@@ -57,20 +58,20 @@ snakemake --cores 16 --use-conda
 
 ## Pipeline Overview
 
-| Step | Tool | Description |
-|------|------|-------------|
-| 0a | Python | Input validation — checks FASTA format, file sizes, isolate count |
-| 0b | wget | Download subspecies references (ATCC19977, CIP_108297, CCUG_50184) |
-| 0c | wget | Download DCC anchor sequences (SRR36966619, ERR363247, etc.) |
-| 1 | MASH | Species identification — non-*M. abscessus* excluded and logged |
-| 2 | MASH | Subspecies assignment → abscessus / massiliense / bolletii |
-| 3 | Snippy | SNP calling against subspecies reference genome |
-| 4 | snippy-core | Core SNP alignment per subspecies including DCC references |
-| 5 | FastBAPS | Population structure clustering — assigns isolates to lineages |
-| 6 | Gubbins | Recombination removal per FastBAPS cluster — **required before SNP distances** |
-| 7 | snp-dists | Pairwise SNP distances from Gubbins-filtered alignments |
-| 8 | Custom | DCC assignment → DCC1–7 + Non-DCC (500 SNP threshold) |
-| 9 | Custom | Outputs — Excel spreadsheets + interactive HTML map + pipeline summary |
+| Step | Tool        | Description                                                                    |
+| ---- | ----------- | ------------------------------------------------------------------------------ |
+| 0a   | Python      | Input validation — checks FASTA format, file sizes, isolate count              |
+| 0b   | wget        | Download subspecies references (ATCC19977, CIP_108297, CCUG_50184)             |
+| 0c   | wget        | Download DCC anchor sequences (SRR36966619, ERR363247, etc.)                   |
+| 1    | MASH        | Species identification — non-*M. abscessus* excluded and logged                |
+| 2    | MASH        | Subspecies assignment → abscessus / massiliense / bolletii                     |
+| 3    | Snippy      | SNP calling against subspecies reference genome                                |
+| 4    | snippy-core | Core SNP alignment per subspecies including DCC references                     |
+| 5    | FastBAPS    | Population structure clustering — assigns isolates to lineages                 |
+| 6    | Gubbins     | Recombination removal per FastBAPS cluster — **required before SNP distances** |
+| 7    | snp-dists   | Pairwise SNP distances from Gubbins-filtered alignments                        |
+| 8    | Custom      | DCC assignment → DCC1–7 + Non-DCC (500 SNP threshold)                          |
+| 9    | Custom      | Outputs — Excel spreadsheets + interactive HTML map + pipeline summary         |
 
 > **Note:** Phylogenetic tree building is not included in the pipeline. Core SNP alignments are produced at `results/core/{abscessus,massiliense}/core.aln` and can be used directly with any tree building software. See [Phylogenetic Trees](#phylogenetic-trees) below for recommended methods.
 
@@ -94,6 +95,7 @@ The pipeline automatically validates all input files before starting. It will:
 - **Fail with an error** if any FASTA file is empty or malformed
 
 Example warning for small datasets:
+
 ```
 [mab-dcc-pipeline] WARNING: Only 15 isolates found. FastBAPS clustering and
 RAxML trees require at least 20-50 isolates for meaningful results.
@@ -105,23 +107,23 @@ On first run the pipeline automatically downloads all required references:
 
 **Subspecies references** (downloaded to `references/subspecies/`):
 
-| File | Strain | Accession | Purpose |
-|------|--------|-----------|---------|
-| ATCC19977.fasta | *M. a. abscessus* | GCF_000069185.1 | SNP calling reference |
+| File             | Strain              | Accession       | Purpose               |
+| ---------------- | ------------------- | --------------- | --------------------- |
+| ATCC19977.fasta  | *M. a. abscessus*   | GCF_000069185.1 | SNP calling reference |
 | CIP_108297.fasta | *M. a. massiliense* | GCF_001792625.1 | SNP calling reference |
-| CCUG_50184.fasta | *M. a. bolletii* | GCF_000701545.1 | SNP calling reference |
+| CCUG_50184.fasta | *M. a. bolletii*    | GCF_000701545.1 | SNP calling reference |
 
 **DCC anchor sequences** (downloaded to `results/dcc_refs/`):
 
-| Accession | DCC | Source |
-|-----------|-----|--------|
-| SRR36966619 | DCC1 | Ruis et al. 2021 |
-| ERR363247 | DCC2 | Ruis et al. 2021 |
-| ERR1045629 | DCC3 | Ruis et al. 2021 |
+| Accession              | DCC  | Source                |
+| ---------------------- | ---- | --------------------- |
+| SRR36966619            | DCC1 | Ruis et al. 2021      |
+| ERR363247              | DCC2 | Ruis et al. 2021      |
+| ERR1045629             | DCC3 | Ruis et al. 2021      |
 | ERR1081288 + ERR494841 | DCC4 | Ruis + Dedrick et al. |
-| ERR363431 + ERR484982 | DCC5 | Ruis + Dedrick et al. |
-| ERR2524314 + A47 | DCC6 | Ruis + Dedrick et al. |
-| ERR363320 + FLAC047 | DCC7 | Ruis + Dedrick et al. |
+| ERR363431 + ERR484982  | DCC5 | Ruis + Dedrick et al. |
+| ERR2524314 + A47       | DCC6 | Ruis + Dedrick et al. |
+| ERR363320 + FLAC047    | DCC7 | Ruis + Dedrick et al. |
 
 > If your server has no internet access, download these files on a local machine and transfer them manually to the paths above.
 
@@ -129,17 +131,17 @@ On first run the pipeline automatically downloads all required references:
 
 All outputs written to `results/final/`:
 
-| File | Description |
-|------|-------------|
-| `DCC_assignments_FINAL.xlsx` | Per-isolate DCC assignments including subspecies, FastBAPS cluster, and DCC label |
-| `transmission_pairs_FINAL.xlsx` | Putative transmission pairs at ≤10 SNPs and ≤20 SNPs after recombination removal |
-| `pipeline_summary.html` | Interactive run summary — isolate counts, DCC distribution, species report |
+| File                            | Description                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| `DCC_assignments_FINAL.xlsx`    | Per-isolate DCC assignments including subspecies, FastBAPS cluster, and DCC label |
+| `transmission_pairs_FINAL.xlsx` | Putative transmission pairs at ≤10 SNPs and ≤20 SNPs after recombination removal  |
+| `pipeline_summary.html`         | Interactive run summary — isolate counts, DCC distribution, species report        |
 
 Core SNP alignments are also produced and can be used for downstream analysis:
 
-| File | Description |
-|------|-------------|
-| `results/core/abscessus/core.aln` | *M. a. abscessus* core SNP alignment including DCC reference strains |
+| File                                | Description                                                          |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| `results/core/abscessus/core.aln`   | *M. a. abscessus* core SNP alignment including DCC reference strains  |
 | `results/core/massiliense/core.aln` | *M. a. massiliense* core SNP alignment including DCC reference strains |
 
 > **Note:** Phylogenetic tree building is not included in the pipeline. The core alignments above can be used directly with RAxML, IQ-TREE, FastTree, or any other tree builder. See [Phylogenetic Trees](#phylogenetic-trees) below for the recommended RAxML method matching Ruis et al. 2021.
@@ -148,39 +150,40 @@ Core SNP alignments are also produced and can be used for downstream analysis:
 
 All dependencies managed automatically via `--use-conda`.
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Snakemake | ≥7.0 | Workflow manager |
-| Mash | ≥2.0 | Species and subspecies identification |
-| Snippy | 4.6.0 | Reference-based SNP calling |
-| FastBAPS | 1.0.8 | Population structure clustering |
-| Gubbins | ≥3.3 | Recombination removal |
-| RAxML | ≥8.2 | Maximum likelihood phylogenetic trees |
-| snp-dists | ≥0.8 | Pairwise SNP distances |
-| Python | ≥3.8 | Analysis and output scripts |
+| Tool      | Version | Purpose                               |
+| --------- | ------- | ------------------------------------- |
+| Snakemake | ≥7.0    | Workflow manager                      |
+| Mash      | ≥2.0    | Species and subspecies identification |
+| Snippy    | 4.6.0   | Reference-based SNP calling           |
+| FastBAPS  | 1.0.8   | Population structure clustering       |
+| Gubbins   | ≥3.3    | Recombination removal                 |
+| RAxML     | ≥8.2    | Maximum likelihood phylogenetic trees |
+| snp-dists | ≥0.8    | Pairwise SNP distances                |
+| Python    | ≥3.8    | Analysis and output scripts           |
 
 ## Configuration
 
 Edit `config.yaml` to set:
+
 - Input/output directories
 - SNP thresholds (default: ≤10 strict, ≤20 broad, 500 DCC membership)
 - Computational resources (cores, memory)
 
 ## DCC Reference Strains
 
-| DCC | Subspecies | Reference | Source |
-|-----|-----------|-----------|--------|
-| DCC1 | *M. a. abscessus* | SRR36966619 | Ruis et al. 2021 |
-| DCC2 | *M. a. abscessus* | ERR363247 | Ruis et al. 2021 |
-| DCC3 | *M. a. massiliense* | ERR1045629 | Ruis et al. 2021 |
-| DCC4 | *M. a. abscessus* | ERR1081288 + ERR494841 | Ruis + Dedrick et al. |
-| DCC5 | *M. a. abscessus* | ERR363431 + ERR484982 | Ruis + Dedrick et al. |
-| DCC6 | *M. a. massiliense* | ERR2524314 + A47 | Ruis + Dedrick et al. |
-| DCC7 | *M. a. massiliense* | ERR363320 + FLAC047 | Ruis + Dedrick et al. |
+| DCC  | Subspecies          | Reference              | Source                |
+| ---- | ------------------- | ---------------------- | --------------------- |
+| DCC1 | *M. a. abscessus*   | SRR36966619            | Ruis et al. 2021      |
+| DCC2 | *M. a. abscessus*   | ERR363247              | Ruis et al. 2021      |
+| DCC3 | *M. a. massiliense* | ERR1045629             | Ruis et al. 2021      |
+| DCC4 | *M. a. abscessus*   | ERR1081288 + ERR494841 | Ruis + Dedrick et al. |
+| DCC5 | *M. a. abscessus*   | ERR363431 + ERR484982  | Ruis + Dedrick et al. |
+| DCC6 | *M. a. massiliense* | ERR2524314 + A47       | Ruis + Dedrick et al. |
+| DCC7 | *M. a. massiliense* | ERR363320 + FLAC047    | Ruis + Dedrick et al. |
 
 ### DCC4/DCC5 assignment note
 
-DCC4 and DCC5 are highly related lineages that FastBAPS frequently places in the same population structure cluster. When this occurs the pipeline automatically uses pairwise SNP distance to the closest reference strain to distinguish them. This distance-based tiebreaking was validated against a 312-isolate cohort and correctly separates the two lineages.
+DCC4 and DCC5 are highly related lineages that FastBAPS frequently places in the same population structure cluster. When this occurs the pipeline automatically uses pairwise SNP distance to the closest reference strain to distinguish them. This distance-based tiebreaking reliably separates the two lineages.
 
 ### DCC6 assignment note
 
@@ -191,6 +194,7 @@ DCC6 is a relatively rare massiliense lineage. Only isolates within ~1,000 SNPs 
 ### Unbiased cohort analysis (default)
 
 By default this pipeline is designed for **unbiased clinical cohort analysis** — you provide all isolates from your patient population and the pipeline assigns them to DCCs without any pre-selection. This approach:
+
 - Captures the true diversity of *M. abscessus* circulating in your patient population
 - Identifies Non-DCC lineages that may represent novel or emerging clones
 - Avoids the sampling bias introduced by deliberately including only known DCC representatives
@@ -199,23 +203,25 @@ By default this pipeline is designed for **unbiased clinical cohort analysis** �
 ### Adding global reference genomes (biased toward known DCCs)
 
 To anchor your analysis to the global DCC framework more tightly, you can supplement your cohort with publicly available isolates from published studies. This approach is useful when:
+
 - You want to formally validate Non-DCC clusters against the full global dataset
 - You are proposing a new DCC and need multi-continental evidence
 - You want to compare your cohort directly against Ruis et al. 2021 figures
 
 To add global genomes, download SRA accessions from published studies and place them in `input/assemblies/` alongside your cohort isolates. Key public datasets:
 
-| Study | Accessions | N isolates | Notes |
-|-------|-----------|-----------|-------|
-| Ruis et al. 2021 | ERP017141 | 2,045 | Primary DCC definition dataset |
-| Bronson et al. 2021 | PRJNA648717 | ~200 | North American cohort |
-| Dedrick et al. | PRJNA738526 | 90 | Lab paper reference strains |
+| Study               | Accessions  | N isolates | Notes                          |
+| ------------------- | ----------- | ---------- | ------------------------------ |
+| Ruis et al. 2021    | ERP017141   | 2,045      | Primary DCC definition dataset |
+| Bronson et al. 2021 | PRJNA648717 | ~200       | North American cohort          |
+| Dedrick et al.      | PRJNA738526 | 90         | Lab paper reference strains    |
 
 > **Warning:** Adding global genomes significantly increases runtime. Consider downloading only the DCC representative strains rather than the full dataset.
 
 ### Interpreting Non-DCC isolates
 
 Non-DCC isolates are not sequencing failures. They represent:
+
 1. **Genuinely distinct lineages** — phylogenetically intermediate between defined DCCs
 2. **Locally circulating clones** — lineages with active transmission within your cohort not yet sampled globally at sufficient scale to meet formal DCC criteria
 3. **Independent environmental acquisitions** — isolates acquired directly from environmental sources
@@ -226,18 +232,19 @@ A cluster of Non-DCC isolates meeting ≥10 isolates from ≥2 countries at the 
 
 The locations file is optional but required for the interactive HTML transmission map. It should be an Excel file (`.xlsx`) with the following format:
 
-| Column 1 | Column 2 |
-|----------|----------|
+| Column 1   | Column 2                |
+| ---------- | ----------------------- |
 | Isolate ID | Institution or location |
 
 **Example format** (use generic placeholder names in your own file):
 
-| Isolate | Institution |
-|---------|------------|
+| Isolate   | Institution               |
+| --------- | ------------------------- |
 | Sample001 | Hospital A, City, Country |
 | Sample002 | Hospital B, City, Country |
 
 **Rules:**
+
 - Column 1 must contain the isolate ID exactly as it appears in your FASTA filenames (without the `.fasta` extension)
 - Column 2 should contain the institution name or city/country
 - The pipeline extracts country from the institution name automatically — include recognizable country keywords (e.g. Australia, UK, Canada, USA, France)
@@ -245,8 +252,7 @@ The locations file is optional but required for the interactive HTML transmissio
 - Isolates without a matching location entry are excluded from the map but still included in all other outputs
 - Place the file at `input/locations.xlsx` and set `locations_file: "input/locations.xlsx"` in `config.yaml`
 
-**Supported countries for map plotting:**
-Australia, New Zealand, UK, USA, Canada, France, Netherlands, Germany, Italy, Spain, Israel, Ireland, Finland, Switzerland, Singapore, Taiwan, Turkey, Latvia, Portugal, Slovakia
+**Supported countries for map plotting:** Australia, New Zealand, UK, USA, Canada, France, Netherlands, Germany, Italy, Spain, Israel, Ireland, Finland, Switzerland, Singapore, Taiwan, Turkey, Latvia, Portugal, Slovakia
 
 > If your institution is in a country not listed above it will default to USA. Add additional country detection logic to `workflow/scripts/generate_html_map.py` if needed.
 
@@ -283,7 +289,7 @@ This prints a summary including isolate count, estimated runtimes, and whether r
   Output directory:   results/
   Locations file:     YES
 
-  Estimated runtimes (approximate, based on 312-isolate validation run):
+  Estimated runtimes (approximate, based on a ~300-isolate run):
     MASH species/subspecies:  ~30 minutes
     Snippy SNP calling:       ~16 hours
     FastBAPS clustering:      ~30 minutes
@@ -314,19 +320,6 @@ DCC reference sequences (~3–4GB) are downloaded automatically on first run. If
 
 This pipeline has been validated against an independent clinical cohort with manually curated DCC assignments, with pipeline calls matching the expected lineage assignments. Detailed validation metrics will be reported in a forthcoming publication.
 
-| DCC | Pipeline | Expected | Status |
-|-----|----------|---------|--------|
-| DCC1 | 115 | 115 | ✅ exact match |
-| DCC2 | 28 | 28 | ✅ exact match |
-| DCC3 | 24 | 24 | ✅ exact match |
-| DCC4 | 51 | 39 | ✅ combined DCC4+DCC5 = 82 matches |
-| DCC5 | 31 | 43 | ✅ combined DCC4+DCC5 = 82 matches |
-| DCC6 | 1 | 6 | ✅ conservative assignment (see note above) |
-| DCC7 | 20 | 20 | ✅ exact match |
-| Non-DCC | 38 | 31 | ✅ difference explained by DCC6 reclassification |
-
-Transmission pairs identified: 218 at ≤10 SNPs, 449 at ≤20 SNPs.
-
 ## Phylogenetic Trees
 
 Phylogenetic tree building is intentionally excluded from the pipeline due to the long runtime required (2–3 days for 300+ isolates with 100 bootstraps). The core SNP alignments produced by the pipeline can be used directly with any tree building software.
@@ -334,6 +327,7 @@ Phylogenetic tree building is intentionally excluded from the pipeline due to th
 ### Output alignments
 
 After the pipeline completes, core SNP alignments are available at:
+
 - `results/core/abscessus/core.aln` — M. a. abscessus alignment including DCC reference strains
 - `results/core/massiliense/core.aln` — M. a. massiliense alignment including DCC reference strains
 
@@ -345,13 +339,13 @@ RAxML v8.2 with GTR+GAMMA model and 100 bootstraps, as used in Ruis et al. 2021:
 conda activate analyze_mab  # or any env with RAxML
 
 # Step 1 — Run 100 bootstrap replicates
-nohup raxmlHPC-PTHREADS   -s results/core/abscessus/core.aln   -n abscessus_raxml   -m GTRGAMMA   -p 12345   -b 12345   -N 100   -T 4   -w $(realpath results/trees/abscessus/) &> raxml_bootstrap.log &
+nohup raxmlHPC-PTHREADS -s results/core/abscessus/core.aln -n abscessus_raxml -m GTRGAMMA -p 12345 -b 12345 -N 100 -T 4 -w $(realpath results/trees/abscessus/) &> raxml_bootstrap.log &
 
 # Step 2 — Find best ML tree
-raxmlHPC-PTHREADS   -s results/core/abscessus/core.aln   -n abscessus_besttree   -m GTRGAMMA   -p 12345   -T 4   -w $(realpath results/trees/abscessus/)
+raxmlHPC-PTHREADS -s results/core/abscessus/core.aln -n abscessus_besttree -m GTRGAMMA -p 12345 -T 4 -w $(realpath results/trees/abscessus/)
 
 # Step 3 — Draw bootstrap values onto best tree
-raxmlHPC -f b   -t results/trees/abscessus/RAxML_bestTree.abscessus_besttree   -z results/trees/abscessus/RAxML_bootstrap.abscessus_raxml   -m GTRGAMMA   -n abscessus_final   -w $(realpath results/trees/abscessus/)
+raxmlHPC -f b -t results/trees/abscessus/RAxML_bestTree.abscessus_besttree -z results/trees/abscessus/RAxML_bootstrap.abscessus_raxml -m GTRGAMMA -n abscessus_final -w $(realpath results/trees/abscessus/)
 ```
 
 The output file `RAxML_bipartitions.abscessus_final` can be uploaded directly to [iTOL](https://itol.embl.de) for visualization.
@@ -362,7 +356,7 @@ After DCC assignments are complete, generate iTOL annotation files using the tip
 
 ```bash
 # Get tip labels from bipartitions tree
-grep -oP '[A-Z][A-Z0-9_]+(?=:)' results/trees/abscessus/RAxML_bipartitions.abscessus_final     > /tmp/abscessus_tips.txt
+grep -oP '[A-Z][A-Z0-9_]+(?=:)' results/trees/abscessus/RAxML_bipartitions.abscessus_final > /tmp/abscessus_tips.txt
 
 # Generate color strip and label color files
 python3 << 'PYEOF'
@@ -384,19 +378,19 @@ REF_DCC = {
     "ERR2524314":"DCC6","ERR363320":"DCC7"
 }
 
-lines = ["DATASET_COLORSTRIP","SEPARATOR TAB","DATASET_LABEL	DCC",
-         "COLOR	#888888","LEGEND_TITLE	DCC",
-         "LEGEND_COLORS	#60a5fa	#34d399	#a78bfa	#fbbf24	#e11d48	#06b6d4	#fb923c",
-         "LEGEND_LABELS	DCC1	DCC2	DCC4	DCC5	DCC6	DCC7	Non-DCC","DATA"]
+lines = ["DATASET_COLORSTRIP","SEPARATOR TAB","DATASET_LABEL\tDCC",
+         "COLOR\t#888888","LEGEND_TITLE\tDCC",
+         "LEGEND_COLORS\t#60a5fa\t#34d399\t#a78bfa\t#fbbf24\t#e11d48\t#06b6d4\t#fb923c",
+         "LEGEND_LABELS\tDCC1\tDCC2\tDCC4\tDCC5\tDCC6\tDCC7\tNon-DCC","DATA"]
 
 for tip in tips:
-    dcc = REF_DCC.get(tip) or dcc_map.get(tip) or           dcc_map.get(tip.replace("_WGS","").replace("_hybrid",""), "Unknown")
+    dcc = REF_DCC.get(tip) or dcc_map.get(tip) or \
+          dcc_map.get(tip.replace("_WGS","").replace("_hybrid",""), "Unknown")
     color = DCC_COLORS.get(dcc, "#888888")
-    lines.append(f"{tip}	{color}	{dcc}")
+    lines.append(f"{tip}\t{color}\t{dcc}")
 
 with open("results/trees/abscessus/iTOL_colorstrip.txt","w") as f:
-    f.write("
-".join(lines))
+    f.write("\n".join(lines))
 print("iTOL annotation written to results/trees/abscessus/iTOL_colorstrip.txt")
 PYEOF
 ```
