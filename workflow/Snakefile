@@ -326,27 +326,53 @@ rule download_dcc_references:
 
         # Download abscessus DCC reads via ENA HTTP
         for acc in SRR36966619 ERR363247 ERR1081288 ERR494841 ERR363431 ERR484982; do
-            if [ ! -f {params.abs_refs}/${{acc}}_1.fastq.gz ]; then
+            if [ ! -s {params.abs_refs}/${{acc}}_1.fastq.gz ]; then
                 echo "Downloading $acc..."
                 prefix=$(echo $acc | cut -c1-6)
-                suffix=$(echo $acc | cut -c1-9)
-                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_1.fastq.gz" \
-                    -O {params.abs_refs}/${{acc}}_1.fastq.gz || true
-                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_2.fastq.gz" \
-                    -O {params.abs_refs}/${{acc}}_2.fastq.gz || true
+                digits=$(echo $acc | sed 's/^[A-Za-z]*//')
+                n=${{#digits}}
+                if [ "$n" -le 6 ]; then
+                    subdir=""
+                elif [ "$n" -eq 7 ]; then
+                    subdir="00$(printf %s "$digits" | tail -c 1)/"
+                elif [ "$n" -eq 8 ]; then
+                    subdir="0$(printf %s "$digits" | tail -c 2)/"
+                else
+                    subdir="$(printf %s "$digits" | tail -c 3)/"
+                fi
+                base="http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{subdir}}${{acc}}"
+                wget "${{base}}/${{acc}}_1.fastq.gz" -O {params.abs_refs}/${{acc}}_1.fastq.gz
+                wget "${{base}}/${{acc}}_2.fastq.gz" -O {params.abs_refs}/${{acc}}_2.fastq.gz
+                if [ ! -s {params.abs_refs}/${{acc}}_1.fastq.gz ] || [ ! -s {params.abs_refs}/${{acc}}_2.fastq.gz ]; then
+                    echo "ERROR: download of $acc produced an empty file" >&2
+                    exit 1
+                fi
             fi
         done
 
         # Download massiliense DCC reads
         for acc in ERR1045629 ERR2524314 ERR363320; do
-            if [ ! -f {params.mas_refs}/${{acc}}_1.fastq.gz ]; then
+            if [ ! -s {params.mas_refs}/${{acc}}_1.fastq.gz ]; then
                 echo "Downloading $acc..."
                 prefix=$(echo $acc | cut -c1-6)
-                suffix=$(echo $acc | cut -c1-9)
-                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_1.fastq.gz" \
-                    -O {params.mas_refs}/${{acc}}_1.fastq.gz || true
-                wget -q "http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{suffix}}/${{acc}}_2.fastq.gz" \
-                    -O {params.mas_refs}/${{acc}}_2.fastq.gz || true
+                digits=$(echo $acc | sed 's/^[A-Za-z]*//')
+                n=${{#digits}}
+                if [ "$n" -le 6 ]; then
+                    subdir=""
+                elif [ "$n" -eq 7 ]; then
+                    subdir="00$(printf %s "$digits" | tail -c 1)/"
+                elif [ "$n" -eq 8 ]; then
+                    subdir="0$(printf %s "$digits" | tail -c 2)/"
+                else
+                    subdir="$(printf %s "$digits" | tail -c 3)/"
+                fi
+                base="http://ftp.sra.ebi.ac.uk/vol1/fastq/${{prefix}}/${{subdir}}${{acc}}"
+                wget "${{base}}/${{acc}}_1.fastq.gz" -O {params.mas_refs}/${{acc}}_1.fastq.gz
+                wget "${{base}}/${{acc}}_2.fastq.gz" -O {params.mas_refs}/${{acc}}_2.fastq.gz
+                if [ ! -s {params.mas_refs}/${{acc}}_1.fastq.gz ] || [ ! -s {params.mas_refs}/${{acc}}_2.fastq.gz ]; then
+                    echo "ERROR: download of $acc produced an empty file" >&2
+                    exit 1
+                fi
             fi
         done
 
@@ -700,12 +726,12 @@ checkpoint split_clusters:
 rule gubbins:
     """Run Gubbins recombination removal on each FastBAPS cluster."""
     input:
-        fasta = "{out}/gubbins/{subsp}/cluster_{cluster}.fasta"
+        fasta = "{out}/gubbins_clean/{subsp}/cluster_{cluster}.fasta"
     output:
-        filtered = "{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta",
-        tree     = "{out}/gubbins/{subsp}/cluster_{cluster}.final_tree.tre"
+        filtered = "{out}/gubbins_clean/{subsp}/cluster_{cluster}.gubbins_filtered.fasta",
+        tree     = "{out}/gubbins_clean/{subsp}/cluster_{cluster}.gubbins_tree.tre"
     params:
-        prefix             = "{out}/gubbins/{subsp}/cluster_{cluster}",
+        prefix             = "{out}/gubbins_clean/{subsp}/cluster_{cluster}",
         tree_builder       = config["gubbins"]["tree_builder"],
         first_tree_builder = config["gubbins"]["first_tree_builder"]
     threads: config["gubbins"]["threads"]
@@ -741,7 +767,7 @@ rule gubbins:
 rule snp_dists_cluster:
     """Calculate pairwise SNP distances from Gubbins-filtered cluster alignments."""
     input:
-        fasta = "{out}/gubbins/{subsp}/cluster_{cluster}.filtered_polymorphic_sites.fasta"
+        fasta = "{out}/gubbins_clean/{subsp}/cluster_{cluster}.gubbins_filtered.fasta"
     output:
         tsv = "{out}/snp_distances/{subsp}/cluster_{cluster}.tsv"
     conda: "envs/snippy.yaml"
