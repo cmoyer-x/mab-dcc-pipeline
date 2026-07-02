@@ -413,12 +413,16 @@ rule download_subspecies_refs:
             gunzip {output.mas_ref}.gz
         fi
 
-        # CCUG_50184 — M. a. bolletii reference
+        # CCUG_50184 / BD — M. a. bolletii reference
         if [ ! -f {output.bol_ref} ]; then
-            echo "Downloading CCUG_50184 (M. a. bolletii reference)..."
-            wget -q "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/701/545/GCF_000701545.1_ASM70154v1/GCF_000701545.1_ASM70154v1_genomic.fna.gz" \
+            echo "Downloading M. a. bolletii BD reference..."
+            wget "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/609/715/GCF_003609715.1_ASM360971v1/GCF_003609715.1_ASM360971v1_genomic.fna.gz" \
                 -O {output.bol_ref}.gz
-            gunzip {output.bol_ref}.gz
+            gunzip -f {output.bol_ref}.gz
+            if [ ! -s {output.bol_ref} ]; then
+                echo "ERROR: bolletii reference download failed or is empty" >&2
+                exit 1
+            fi
         fi
 
         echo "Subspecies references ready"
@@ -740,27 +744,29 @@ rule gubbins:
         """
         n_seqs=$(grep -c "^>" {input.fasta} || echo 0)
         if [ "$n_seqs" -lt 4 ]; then
-            echo "Cluster {wildcards.cluster}: $n_seqs seqs — too few for Gubbins, copying as-is"
+            echo "Cluster {wildcards.cluster}: $n_seqs seqs - too few for Gubbins, copying as-is"
             cp {input.fasta} {output.filtered}
             touch {output.tree}
         else
             cd $(dirname {params.prefix})
-            run_gubbins.py \
-                --prefix cluster_{wildcards.cluster} \
-                --threads {threads} \
-                --tree-builder {params.tree_builder} \
-                --first-tree-builder {params.first_tree_builder} \
-                cluster_{wildcards.cluster}.fasta \
-            || run_gubbins.py \
-                --prefix cluster_{wildcards.cluster} \
-                --threads {threads} \
-                --tree-builder fasttree \
-                --first-tree-builder fasttree \
-                cluster_{wildcards.cluster}.fasta
-            cp cluster_{wildcards.cluster}.filtered_polymorphic_sites.fasta \
-               cluster_{wildcards.cluster}.gubbins_filtered.fasta
-            cp cluster_{wildcards.cluster}.node_labelled.final_tree.tre \
-               cluster_{wildcards.cluster}.gubbins_tree.tre
+            if run_gubbins.py --prefix cluster_{wildcards.cluster} --threads {threads} \
+                   --tree-builder {params.tree_builder} --first-tree-builder {params.first_tree_builder} \
+                   cluster_{wildcards.cluster}.fasta; then
+                cp cluster_{wildcards.cluster}.filtered_polymorphic_sites.fasta cluster_{wildcards.cluster}.gubbins_filtered.fasta
+                cp cluster_{wildcards.cluster}.node_labelled.final_tree.tre cluster_{wildcards.cluster}.gubbins_tree.tre
+            else
+                rm -rf tmp* cluster_{wildcards.cluster}.iteration_* cluster_{wildcards.cluster}.*.tre cluster_{wildcards.cluster}.*.treefile
+                if run_gubbins.py --prefix cluster_{wildcards.cluster} --threads {threads} \
+                       --tree-builder fasttree --first-tree-builder fasttree \
+                       cluster_{wildcards.cluster}.fasta; then
+                    cp cluster_{wildcards.cluster}.filtered_polymorphic_sites.fasta cluster_{wildcards.cluster}.gubbins_filtered.fasta
+                    cp cluster_{wildcards.cluster}.node_labelled.final_tree.tre cluster_{wildcards.cluster}.gubbins_tree.tre
+                else
+                    echo "Gubbins failed for cluster {wildcards.cluster}; using unfiltered alignment" >&2
+                    cp cluster_{wildcards.cluster}.fasta cluster_{wildcards.cluster}.gubbins_filtered.fasta
+                    touch cluster_{wildcards.cluster}.gubbins_tree.tre
+                fi
+            fi
         fi
         """
 
